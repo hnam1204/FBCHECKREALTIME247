@@ -125,7 +125,39 @@ export default {
       return await env.ASSETS.fetch(request);
     }
 
-    return new Response('Asset Binding Not Found', { status: 404 });
+    // Fallback UI for Cloudflare Dashboard Quick Edit Preview (where static assets are not mounted)
+    const previewFallbackHtml = `<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta http-equiv="refresh" content="3;url=https://cookiefb.coongviec.workers.dev"/>
+  <title>NHN Telemetry - Cloudflare Edge</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0b1120; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 24px; box-sizing: border-box; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 32px; max-width: 520px; text-align: center; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
+    h1 { font-size: 1.25rem; font-weight: 700; color: #38bdf8; margin: 0 0 12px; }
+    p { font-size: 0.875rem; color: #94a3b8; line-height: 1.6; margin: 8px 0; }
+    .btn { display: inline-block; margin-top: 18px; padding: 10px 20px; background: #2563eb; color: #fff; text-decoration: none; font-weight: 600; font-size: 0.875rem; border-radius: 8px; transition: background 0.2s; }
+    .btn:hover { background: #1d4ed8; }
+    .badge { display: inline-block; padding: 4px 10px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border-radius: 6px; font-size: 0.75rem; font-weight: 600; margin-bottom: 14px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">NHN TELEMETRY • CLOUDFLARE EDGE ACTIVE</div>
+    <h1>Hệ thống Đang Hoạt Động Bình Thường</h1>
+    <p>Trình xem thử (Quick Edit Preview) trong Dashboard của Cloudflare không tự động đính kèm thư mục tệp tĩnh (Static Assets).</p>
+    <p>Website thực tế đã được deploy và đang hoạt động đầy đủ tại:</p>
+    <a class="btn" href="https://cookiefb.coongviec.workers.dev" target="_blank" rel="noopener">Mở Website Trực Tiếp (cookiefb.coongviec.workers.dev) ↗</a>
+  </div>
+</body>
+</html>`;
+
+    return new Response(previewFallbackHtml, {
+      status: 200,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' }
+    });
   },
 
   // 2. 24/7 Cloudflare Edge Cron Trigger (Runs every minute)
@@ -1590,19 +1622,21 @@ async function handleApiRoute(pathname, method, request, env, url) {
 
     const rx = { like: total_reactions, love: 0, care: 0, haha: 0, wow: 0, sad: 0, angry: 0, ...reactions };
 
+    const snapValues = [
+      target_id, now,
+      total_reactions,
+      rx.like || 0, rx.love || 0, rx.care || 0, rx.haha || 0, rx.wow || 0, rx.sad || 0, rx.angry || 0,
+      total_comments, total_shares,
+      deltaRx, deltaCmt, deltaSh
+    ];
+
     const snapRes = await db.prepare(`
       INSERT INTO snapshots (
         target_id, observed_at, source_type,
         total_reactions, like_count, love_count, care_count, haha_count, wow_count, sad_count, angry_count,
         total_comments, total_shares, delta_reactions, delta_comments, delta_shares
       ) VALUES (?, ?, 'LOCAL_SIDECAR', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      target_id, now,
-      total_reactions,
-      rx.like || 0, rx.love || 0, rx.care || 0, rx.haha || 0, rx.wow || 0, rx.sad || 0, rx.angry || 0,
-      total_comments, total_shares,
-      deltaRx, deltaCmt, deltaSh
-    ).run();
+    `).bind(...snapValues).run();
 
     await db.prepare(`
       UPDATE monitored_targets
@@ -1796,13 +1830,7 @@ async function syncViaGraphApi(target, token, env, graphVersion) {
   const deltaCmt = lastSnap ? (totalComments - lastSnap.total_comments) : 0;
   const deltaSh = lastSnap ? (totalShares - lastSnap.total_shares) : 0;
 
-  await db.prepare(`
-    INSERT INTO snapshots (
-      target_id, observed_at, source_type,
-      total_reactions, like_count, love_count, care_count, haha_count, wow_count, sad_count, angry_count,
-      total_comments, total_shares, delta_reactions, delta_comments, delta_shares
-    ) VALUES (?, ?, 'GRAPH_API', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(
+  const snapValues = [
     target.id, now,
     totalReactions,
     data.rx_likes?.summary?.total_count || 0,
@@ -1814,7 +1842,15 @@ async function syncViaGraphApi(target, token, env, graphVersion) {
     data.rx_angrys?.summary?.total_count || 0,
     totalComments, totalShares,
     deltaRx, deltaCmt, deltaSh
-  ).run();
+  ];
+
+  await db.prepare(`
+    INSERT INTO snapshots (
+      target_id, observed_at, source_type,
+      total_reactions, like_count, love_count, care_count, haha_count, wow_count, sad_count, angry_count,
+      total_comments, total_shares, delta_reactions, delta_comments, delta_shares
+    ) VALUES (?, ?, 'GRAPH_API', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(...snapValues).run();
 
   await db.prepare(`
     UPDATE monitored_targets
@@ -1989,19 +2025,21 @@ async function syncViaMbasic(target, env, masterKey) {
   const deltaSh = lastSnap ? (parsed.totalShares - lastSnap.total_shares) : 0;
 
   // Insert Snapshot
+  const snapValues = [
+    target.id, now,
+    parsed.totalReactions,
+    breakdown.like, breakdown.love, breakdown.care, breakdown.haha, breakdown.wow, breakdown.sad, breakdown.angry,
+    parsed.totalComments, parsed.totalShares,
+    deltaRx, deltaCmt, deltaSh
+  ];
+
   await db.prepare(`
     INSERT INTO snapshots (
       target_id, observed_at, source_type,
       total_reactions, like_count, love_count, care_count, haha_count, wow_count, sad_count, angry_count,
       total_comments, total_shares, delta_reactions, delta_comments, delta_shares
     ) VALUES (?, ?, 'MBASIC', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(
-    target.id, now,
-    parsed.totalReactions,
-    breakdown.like, breakdown.love, breakdown.care, breakdown.haha, breakdown.wow, breakdown.sad, breakdown.angry,
-    parsed.totalComments, parsed.totalShares,
-    deltaRx, deltaCmt, deltaSh
-  ).run();
+  `).bind(...snapValues).run();
 
   // Update Target
   await db.prepare(`
