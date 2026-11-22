@@ -52,22 +52,58 @@ html.light {
 }
 
 /* ========================================================
-   ROUNDED TYPOGRAPHY STACK & +5PX SCALE
+   ROOT-LEVEL FLUID RESPONSIVE TYPOGRAPHY & VIEWPORT
    ======================================================== */
 html {
-  font-size: 21px; /* Scaled up by +5px (Root 16px -> 21px) */
+  font-size: 14px; /* Mobile first (320px - 639px) */
   background-color: var(--bg-slate-dark);
   color: var(--text-body);
-  font-family: ui-rounded, 'SF Pro Rounded', 'Nunito', system-ui, -apple-system, sans-serif;
+  font-family: ui-rounded, 'SF Pro Rounded', 'Nunito', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  -webkit-tap-highlight-color: transparent;
+  scroll-behavior: smooth;
+}
+
+@media (min-width: 640px) {
+  html {
+    font-size: 14.5px; /* Tablet */
+  }
+}
+
+@media (min-width: 1024px) {
+  html {
+    font-size: 15px; /* Laptops & Standard Desktop */
+  }
+}
+
+@media (min-width: 1536px) {
+  html {
+    font-size: 15.5px; /* Large / Hi-DPI Displays */
+  }
+}
+
+html, body {
+  width: 100%;
+  max-width: 100vw;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+*, *::before, *::after {
+  box-sizing: inherit;
 }
 
 body {
   background-color: var(--bg-slate-dark);
   color: var(--text-body);
-  font-family: ui-rounded, 'SF Pro Rounded', 'Nunito', system-ui, -apple-system, sans-serif;
+  font-family: ui-rounded, 'SF Pro Rounded', 'Nunito', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   transition: background-color 0.2s ease, color 0.2s ease;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  touch-action: manipulation;
 }
 
 /* Typography Hierarchy */
@@ -83,10 +119,23 @@ input, button, select, textarea {
   font-family: ui-rounded, 'SF Pro Rounded', 'Nunito', system-ui, -apple-system, sans-serif;
 }
 
+/* iOS Safari auto-zoom prevention on mobile input focus */
+@media (pointer: coarse) {
+  input[type="text"],
+  input[type="number"],
+  input[type="password"],
+  input[type="url"],
+  input[type="search"],
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 /* Scrollbars */
 ::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: var(--bg-slate-dark);
@@ -99,11 +148,20 @@ input, button, select, textarea {
   background: var(--brand-ocean-blue);
 }
 
+/* Hide scrollbar utility for swipeable horizontal tabs */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* Surface & Border System */
 .surface-card {
   background-color: var(--bg-surface-card);
   border: 1px solid var(--border-card);
-  transition: background-color 0.2s ease, border-color 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .surface-card:hover {
@@ -152,9 +210,15 @@ input, button, select, textarea {
   border-color: rgba(56, 198, 255, 0.35);
 }
 
-/* Table rows */
+/* Table rows & Touch Scrolling */
 tr:hover {
   background-color: var(--table-hover);
+}
+
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Inputs & Form Controls */
@@ -183,6 +247,52 @@ input:focus, select:focus, textarea:focus {
 
 .interactive-hover:active {
   transform: scale(0.98);
+}
+
+/* ========================================================
+   MOBILE BOTTOM SHEET MODAL ARCHITECTURE (< 640px)
+   ======================================================== */
+@media (max-width: 639px) {
+  /* Make modal wrappers align to the bottom like native mobile app drawers */
+  .fixed.inset-0.z-50.flex.items-center.justify-center {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+
+  .fixed.inset-0.z-50 > .surface-card,
+  .fixed.inset-0.z-50 > div > .surface-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 90dvh !important;
+    border-radius: 20px 20px 0 0 !important;
+    border-bottom: none !important;
+    margin: 0 !important;
+    padding: 1.25rem 1rem max(1.25rem, env(safe-area-inset-bottom)) 1rem !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    animation: sheetSlideUp 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.6) !important;
+  }
+
+  /* Target & Detail Modals max height */
+  #accountsModal .surface-card,
+  #batchModal .surface-card,
+  #detailModal .surface-card,
+  #alertDetailModal .surface-card,
+  #alertRulesModal .surface-card {
+    max-height: 92dvh !important;
+  }
+}
+
+@keyframes sheetSlideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0.8;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 /* ========================================================

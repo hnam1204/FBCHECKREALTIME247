@@ -58,38 +58,40 @@
 <body class="bg-slateDark text-txt-body min-h-screen flex flex-col font-sans antialiased selection:bg-brand-cyan/20 selection:text-white">
 
   <!-- Top Enterprise Header -->
-  <header class="border-b border-surface-border bg-surface sticky top-0 z-30 px-6 py-4 flex items-center justify-between transition-colors">
-    <div class="flex items-center gap-3.5">
-      <div class="h-11 px-2.5 py-1 rounded-xl bg-white flex items-center justify-center shadow-md shadow-brand-cyan/10 border border-brand-cyan/30">
-        <img src="logo.png" alt="NHN Software Engineer" class="h-8 w-auto object-contain">
+  <header class="border-b border-surface-border bg-surface sticky top-0 z-30 px-3.5 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between transition-colors">
+    <div class="flex items-center gap-2.5 sm:gap-3.5">
+      <div class="h-9 sm:h-11 px-2 sm:px-2.5 py-1 rounded-xl bg-white flex items-center justify-center shadow-md shadow-brand-cyan/10 border border-brand-cyan/30 shrink-0">
+        <img src="logo.png" alt="NHN Software Engineer" class="h-7 sm:h-8 w-auto object-contain">
       </div>
       <div>
-        <div class="flex items-center gap-2.5">
-          <h1 class="text-base font-extrabold tracking-tight text-txt-title">NHN TELEMETRY</h1>
-          <span class="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/30 flex items-center gap-1.5">
+        <div class="flex items-center gap-2">
+          <h1 class="text-sm sm:text-base font-extrabold tracking-tight text-txt-title">NHN TELEMETRY</h1>
+          <span class="px-2 py-0.5 text-[10px] sm:text-xs font-semibold rounded-full bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/30 flex items-center gap-1.5 shrink-0">
             <span class="w-1.5 h-1.5 rounded-full bg-brand-cyan animate-pulse"></span>
             24/7 ACTIVE
           </span>
         </div>
-        <p class="text-xs text-txt-sub">Hạ tầng phân tích tương tác tự động đa luồng Meta Graph API & mbasic</p>
+        <p class="text-xs text-txt-sub hidden md:block">Hạ tầng phân tích tương tác tự động đa luồng Meta Graph API & mbasic</p>
       </div>
     </div>
 
     <!-- Live socket status & Primary Actions -->
-    <div class="flex items-center gap-3">
-      <div id="wsIndicator" class="text-xs text-txt-sub flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-elevated border border-surface-border">
+    <div class="flex items-center gap-1.5 sm:gap-3">
+      <div id="wsIndicator" class="text-xs text-txt-sub flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface-elevated border border-surface-border" title="Trạng thái WebSocket Live Stream">
         <span class="w-2 h-2 rounded-full bg-amber-400" id="wsDot"></span>
-        <span id="wsText">Đang kết nối...</span>
+        <span id="wsText" class="hidden md:inline">Đang kết nối...</span>
       </div>
 
-      <button onclick="openBatchModal()" class="px-4 py-2 bg-brand-blue hover:bg-brand-ocean active:scale-95 transition text-white text-xs font-medium rounded-lg flex items-center gap-2 shadow-sm shadow-brand-blue/30 border border-brand-cyan/20">
-        <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
-        <span>Thêm liên kết giám sát</span>
+      <button onclick="openBatchModal()" class="px-3 sm:px-4 py-2 bg-brand-blue hover:bg-brand-ocean active:scale-95 transition text-white text-xs font-medium rounded-lg flex items-center gap-1.5 shadow-sm shadow-brand-blue/30 border border-brand-cyan/20">
+        <svg class="w-4 h-4 text-brand-cyan shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+        <span class="hidden sm:inline">Thêm liên kết giám sát</span>
+        <span class="sm:hidden font-semibold">Thêm</span>
       </button>
 
-      <button onclick="openAccountsModal()" class="px-3.5 py-2 bg-surface hover:bg-surface-elevated active:scale-95 transition text-txt-body text-xs font-medium rounded-lg border border-surface-border flex items-center gap-2">
-        <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
-        <span>Tài khoản Meta</span>
+      <button onclick="openAccountsModal()" class="px-3 sm:px-3.5 py-2 bg-surface hover:bg-surface-elevated active:scale-95 transition text-txt-body text-xs font-medium rounded-lg border border-surface-border flex items-center gap-1.5">
+        <svg class="w-4 h-4 text-brand-cyan shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+        <span class="hidden sm:inline">Tài khoản Meta</span>
+        <span class="sm:hidden font-semibold">Tài khoản</span>
       </button>
 
       <!-- Interactive Notification Bell & Dropdown (Prompt 03) -->
@@ -100,7 +102,7 @@
         </button>
 
         <!-- Dropdown Popup (5 latest notifications) -->
-        <div id="notificationDropdown" class="hidden absolute right-0 mt-2 w-80 sm:w-96 surface-card rounded-2xl border border-surface-border shadow-2xl z-50 overflow-hidden flex flex-col">
+        <div id="notificationDropdown" class="hidden absolute right-0 mt-2 w-[calc(100vw-2rem)] sm:w-96 max-w-sm surface-card rounded-2xl border border-surface-border shadow-2xl z-50 overflow-hidden flex flex-col">
           <div class="p-3.5 border-b border-surface-border flex items-center justify-between bg-surface-elevated/40">
             <div class="flex items-center gap-2">
               <span class="text-xs font-bold text-txt-title">Thông báo</span>
@@ -133,28 +135,28 @@
     </div>
   </header>
 
-  <!-- Modern Navigation Bar -->
-  <nav class="border-b border-surface-border bg-surface px-6 flex gap-8 text-xs font-medium transition-colors">
-    <button onclick="switchTab('overview')" id="tab-overview" class="py-3.5 border-b-2 border-brand-cyan text-txt-title font-semibold flex items-center gap-2 transition">
+  <!-- Modern Navigation Bar (Horizontally swipeable on mobile) -->
+  <nav class="border-b border-surface-border bg-surface px-3 sm:px-6 flex gap-3 sm:gap-8 text-xs font-medium transition-colors overflow-x-auto no-scrollbar whitespace-nowrap">
+    <button onclick="switchTab('overview')" id="tab-overview" class="py-3 sm:py-3.5 border-b-2 border-brand-cyan text-txt-title font-semibold flex items-center gap-2 transition shrink-0">
       <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
-      <span>Tổng quan hệ thống</span>
+      <span>Tổng quan</span>
     </button>
-    <button onclick="switchTab('targets')" id="tab-targets" class="py-3.5 border-b-2 border-transparent text-txt-sub hover:text-txt-body font-medium flex items-center gap-2 transition">
+    <button onclick="switchTab('targets')" id="tab-targets" class="py-3 sm:py-3.5 border-b-2 border-transparent text-txt-sub hover:text-txt-body font-medium flex items-center gap-2 transition shrink-0">
       <svg class="w-4 h-4 text-txt-sub" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
       <span>Danh sách giám sát (<span id="tabTargetsCount">0</span>)</span>
     </button>
-    <button onclick="switchTab('comparison')" id="tab-comparison" class="py-3.5 border-b-2 border-transparent text-txt-sub hover:text-txt-body font-medium flex items-center gap-2 transition">
+    <button onclick="switchTab('comparison')" id="tab-comparison" class="py-3 sm:py-3.5 border-b-2 border-transparent text-txt-sub hover:text-txt-body font-medium flex items-center gap-2 transition shrink-0">
       <svg class="w-4 h-4 text-txt-sub" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
-      <span>So sánh nội dung</span>
+      <span>So sánh bài viết</span>
     </button>
-    <button onclick="switchTab('alerts')" id="tab-alerts" class="py-3.5 border-b-2 border-transparent text-txt-sub hover:text-txt-body font-medium flex items-center gap-2 transition">
+    <button onclick="switchTab('alerts')" id="tab-alerts" class="py-3 sm:py-3.5 border-b-2 border-transparent text-txt-sub hover:text-txt-body font-medium flex items-center gap-2 transition shrink-0">
       <svg class="w-4 h-4 text-txt-sub" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
       <span>Nhật ký cảnh báo (<span id="tabAlertsCount">0</span>)</span>
     </button>
   </nav>
 
   <!-- Main Container -->
-  <main class="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6">
+  <main class="flex-1 p-3.5 sm:p-6 max-w-7xl w-full mx-auto space-y-4 sm:space-y-6">
 
     <!-- ================= TAB: OVERVIEW (REDESIGNED) ================= -->
     <div id="view-overview" class="space-y-6">
@@ -1592,32 +1594,51 @@
 
       <!-- Residential Proxy & Multi-Account Isolation Pool -->
       <div class="bg-surface rounded-xl p-4 space-y-3 border border-emerald-500/30">
-        <div class="flex items-center justify-between">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-surface-border/60 pb-2.5">
           <div>
             <h4 class="text-xs font-bold text-txt-title flex items-center gap-2">
-              <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-              <span>Quản lý Pool Proxy Dân Cư & Giữ phiên độc lập:</span>
+              <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              <span>Proxy Dân cư Việt Nam (Residential Proxy SOCKS5/HTTP):</span>
             </h4>
-            <p class="text-[11px] text-txt-sub mt-0.5">Nhập hàng loạt proxy, tự động test và phân bổ 1 Account = 1 Proxy độc lập</p>
+            <p class="text-[11px] text-txt-sub mt-0.5">Cấu hình 1 proxy duy nhất hoặc nạp hàng loạt vào pool, giữ phiên độc lập</p>
           </div>
-          <div class="flex items-center gap-1.5">
-            <button type="button" onclick="toggleBatchProxyInput()" class="px-2.5 py-1 bg-brand-cyan/10 hover:bg-brand-cyan/20 text-brand-cyan border border-brand-cyan/30 text-xs font-semibold rounded flex items-center gap-1.5 transition">
+          <div class="flex items-center gap-2">
+            <span class="text-[11px] text-emerald-400 font-semibold flex items-center gap-1.5 shrink-0">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              Chống khóa nick 100%
+            </span>
+          </div>
+        </div>
+
+        <!-- Quick Single Residential Proxy Input (Matches user setup) -->
+        <div class="flex flex-col sm:flex-row gap-2">
+          <input type="text" id="residentialProxyInput" placeholder="http://user:pass@ip:port hoặc socks5://ip:port hoặc ip:port:user:pass..." class="flex-1 rounded-xl px-3 py-2 text-xs font-mono">
+          <button type="button" onclick="saveResidentialProxy()" class="px-5 py-2 bg-brand-blue hover:bg-brand-ocean text-white text-xs font-semibold rounded-xl whitespace-nowrap border border-brand-cyan/30 flex items-center justify-center gap-1.5 transition active:scale-95 shadow-sm">
+            <span>Lưu Proxy</span>
+          </button>
+        </div>
+
+        <!-- Action Bar for Multi-Proxy Batch Pool -->
+        <div class="flex items-center justify-between pt-1">
+          <span class="text-[11px] text-txt-sub font-medium">Hoặc quản lý Pool đa tài khoản:</span>
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <button type="button" onclick="toggleBatchProxyInput()" class="px-2.5 py-1 bg-brand-cyan/10 hover:bg-brand-cyan/20 text-brand-cyan border border-brand-cyan/30 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
               <span>Nhập hàng loạt</span>
             </button>
-            <button type="button" onclick="testAllProxies()" id="btnTestAllProxies" class="px-2.5 py-1 bg-surface-elevated hover:bg-surface text-txt-body border border-surface-border text-xs font-semibold rounded flex items-center gap-1.5 transition">
+            <button type="button" onclick="testAllProxies()" id="btnTestAllProxies" class="px-2.5 py-1 bg-surface-elevated hover:bg-surface text-txt-body border border-surface-border text-xs font-semibold rounded-lg flex items-center gap-1.5 transition">
               <svg class="w-3.5 h-3.5 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
               <span>Test toàn bộ</span>
             </button>
-            <button type="button" onclick="autoAssignProxies()" id="btnAutoAssignProxies" class="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-semibold rounded flex items-center gap-1.5 transition">
+            <button type="button" onclick="autoAssignProxies()" id="btnAutoAssignProxies" class="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition">
               <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg>
               <span>Gán 1:1 độc lập</span>
             </button>
           </div>
         </div>
 
-        <!-- Collapsible Batch Proxy Input Box -->
-        <div id="batchProxyBox" class="space-y-2 bg-surface-elevated p-3 rounded-lg border border-surface-border">
+        <!-- Collapsible Batch Proxy Input Box (Default hidden) -->
+        <div id="batchProxyBox" class="hidden space-y-2 bg-surface-elevated p-3 rounded-lg border border-surface-border">
           <label class="block text-[11px] text-txt-sub font-medium">Dán danh sách Proxy (Hỗ trợ <code>ip:port:user:pass</code>, <code>http://...</code>, <code>socks5://...</code>, mỗi proxy 1 dòng):</label>
           <textarea id="batchProxyInput" rows="3" placeholder="103.153.22.10:8080:username:password&#10;http://user:pass@14.225.205.100:9999&#10;socks5://user:pass@103.56.12.34:1080" class="w-full rounded px-3 py-1.5 text-xs font-mono"></textarea>
           <div class="flex justify-between items-center">

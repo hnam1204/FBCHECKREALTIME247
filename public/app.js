@@ -1664,6 +1664,38 @@ async function loadSettings() {
   }
 }
 
+async function saveResidentialProxy() {
+  const input = document.getElementById('residentialProxyInput');
+  const val = input ? input.value.trim() : '';
+
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ residential_proxy_url: val })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    if (val) {
+      await fetch('/api/proxies/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proxies: val })
+      }).catch(err => console.warn('Could not auto-import single proxy to pool:', err));
+      if (typeof fetchProxiesList === 'function') fetchProxiesList();
+    }
+
+    showNoticeModal({
+      title: 'Cập nhật Proxy Dân Cư',
+      message: val ? 'Đã lưu cấu hình Residential Proxy thành công và đồng bộ vào hệ thống chống checkpoint.' : 'Đã xóa cấu hình Proxy.',
+      type: 'success'
+    });
+  } catch (err) {
+    showNoticeModal({ title: 'Lỗi lưu Proxy', message: err.message, type: 'error' });
+  }
+}
+
 // --- Multi-Proxy Pool & Independent Session Isolation ---
 function toggleBatchProxyInput() {
   const box = document.getElementById('batchProxyBox');
