@@ -142,6 +142,59 @@ test('Worker Integrity: Production Exports & Handlers', async (t) => {
   assert.equal(healthData.integrity.activeAccounts, 0);
 });
 
+test('Worker Integrity: Sidecar snapshot requires the X-Sidecar-Secret header', async () => {
+  const worker = await import('../src/worker.js');
+  const { worker_default } = worker;
+  const db = new DatabaseSync(':memory:');
+  db.exec(`
+    CREATE TABLE monitored_targets (
+      id INTEGER PRIMARY KEY,
+      status TEXT,
+      last_error TEXT,
+      latest_reactions INTEGER DEFAULT 0,
+      latest_comments INTEGER DEFAULT 0,
+      latest_shares INTEGER DEFAULT 0,
+      baseline_reactions INTEGER DEFAULT 0,
+      baseline_comments INTEGER DEFAULT 0,
+      baseline_shares INTEGER DEFAULT 0
+    );
+    CREATE TABLE snapshots (
+      id INTEGER PRIMARY KEY,
+      target_id INTEGER,
+      observed_at TEXT,
+      total_reactions INTEGER,
+      total_comments INTEGER,
+      total_shares INTEGER,
+      delta_reactions INTEGER,
+      delta_comments INTEGER,
+      delta_shares INTEGER,
+      raw_json TEXT
+    );
+  `);
+  const d1Mock = {
+    prepare(sql) {
+      const stmt = db.prepare(sql);
+      return {
+        bind(...args) {
+          return {
+            async first() { return stmt.get(...args); },
+            async all() { return { results: stmt.all(...args) }; },
+            async run() { const result = stmt.run(...args); return { meta: { changes: result.changes } }; }
+          };
+        }
+      };
+    }
+  };
+  const env = { DB: d1Mock, ENCRYPTION_MASTER_KEY: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' };
+  const body = JSON.stringify({ secret: env.ENCRYPTION_MASTER_KEY, target_id: 1 });
+  const response = await worker_default.fetch(new Request('https://example.test/api/sidecar/push-snapshot', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body
+  }), env);
+  assert.equal(response.status, 401);
+});
+
 test('Worker Integrity: Multi-Metric Data Quality Gate accurately rejects anomalous drops', () => {
   function evaluateQualityGate(lastSnap, current) {
     if (!lastSnap) return { accepted: true };

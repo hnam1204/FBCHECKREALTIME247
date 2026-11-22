@@ -234,7 +234,6 @@ async function runSidecarTick() {
             'X-Sidecar-Secret': SIDECAR_SECRET
           },
           body: JSON.stringify({
-            secret: SIDECAR_SECRET,
             target_id: target.id,
             total_reactions: parsed.totalReactions,
             reactions: breakdown,

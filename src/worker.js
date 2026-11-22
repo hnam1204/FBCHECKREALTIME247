@@ -106,7 +106,7 @@ function jsonResponse(data, status = 200) {
       'Content-Type': 'application/json; charset=utf-8',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PATCH, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Sidecar-Secret',
     }
   });
 }
@@ -1691,8 +1691,7 @@ async function handleApiRoute(pathname, method, request, env, url) {
   if (pathname === '/api/sidecar/push-snapshot' && method === 'POST') {
     const secret = request.headers.get('X-Sidecar-Secret');
     const body = await request.json();
-    const checkSecret = secret || body.secret;
-    if (!checkSecret || checkSecret !== masterKey) {
+    if (!secret || secret !== masterKey) {
       return jsonResponse({ error: 'Không có quyền truy cập (Invalid Sidecar Secret)' }, 401);
     }
 
