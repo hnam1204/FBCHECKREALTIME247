@@ -246,9 +246,9 @@ function handleLiveEvent(evt) {
       if (currentTab === 'targets') renderTargetsTable(cachedTargets);
     }
     if (evt.totals) {
-      const elRx = document.getElementById('statTotalReactions');
-      const elCm = document.getElementById('statTotalComments');
-      const elSh = document.getElementById('statTotalShares');
+      const elRx = document.getElementById('kpiTotalReactions') || document.getElementById('statTotalReactions');
+      const elCm = document.getElementById('kpiTotalComments') || document.getElementById('statTotalComments');
+      const elSh = document.getElementById('kpiTotalShares') || document.getElementById('statTotalShares');
       if (elRx) elRx.textContent = (evt.totals.total_reactions || 0).toLocaleString();
       if (elCm) elCm.textContent = (evt.totals.total_comments || 0).toLocaleString();
       if (elSh) elSh.textContent = (evt.totals.total_shares || 0).toLocaleString();
@@ -288,96 +288,424 @@ function handleLiveEvent(evt) {
   }
 }
 
-// --- 1. Overview API ---
-async function fetchOverview() {
+// --- 1. Overview API & Redesigned Dashboard Engine ---
+let currentOverviewRange = '24H';
+let currentChartMode = 'cumulative'; // 'cumulative' | 'delta'
+let cachedOverviewData = null;
+let isFetchingOverview = false;
+
+function setOverviewTimeRange(range) {
+  currentOverviewRange = range;
+  const container = document.getElementById('overviewTimeRangeFilter');
+  if (container) {
+    const btns = container.querySelectorAll('button');
+    btns.forEach(btn => {
+      const r = btn.getAttribute('data-range');
+      if (r === range) {
+        btn.className = 'px-2.5 py-1 rounded-lg transition font-semibold bg-brand-blue text-white shadow-sm border border-brand-cyan/20';
+      } else {
+        btn.className = 'px-2.5 py-1 rounded-lg transition font-medium text-txt-sub hover:text-txt-body';
+      }
+    });
+  }
+
+  const badge = document.getElementById('overviewChartRangeBadge');
+  if (badge) badge.textContent = `Phạm vi: ${range}`;
+  const rxRange = document.getElementById('kpiRxRangeLabel');
+  if (rxRange) rxRange.textContent = `${range} qua`;
+  const alertRange = document.getElementById('kpiAlertRangeLabel');
+  if (alertRange) alertRange.textContent = `Phạm vi ${range}`;
+
+  fetchOverview(range);
+}
+
+function setOverviewChartMode(mode) {
+  currentChartMode = mode;
+  const btnCum = document.getElementById('btnChartModeCumulative');
+  const btnDelta = document.getElementById('btnChartModeDelta');
+  if (mode === 'cumulative') {
+    if (btnCum) btnCum.className = 'px-2.5 py-1 rounded-lg font-semibold bg-brand-blue text-white shadow-sm border border-brand-cyan/20 transition';
+    if (btnDelta) btnDelta.className = 'px-2.5 py-1 rounded-lg font-medium text-txt-sub hover:text-txt-body transition';
+  } else {
+    if (btnDelta) btnDelta.className = 'px-2.5 py-1 rounded-lg font-semibold bg-brand-blue text-white shadow-sm border border-brand-cyan/20 transition';
+    if (btnCum) btnCum.className = 'px-2.5 py-1 rounded-lg font-medium text-txt-sub hover:text-txt-body transition';
+  }
+
+  if (cachedOverviewData && cachedOverviewData.timeSeries) {
+    renderOverviewChart(cachedOverviewData.timeSeries);
+  }
+}
+
+async function fetchOverview(range = currentOverviewRange) {
+  if (isFetchingOverview) return;
+  isFetchingOverview = true;
+
   try {
-    const res = await fetch('/api/overview');
+    const res = await fetch(`/api/overview?range=${encodeURIComponent(range)}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    const m = data.metrics;
+    cachedOverviewData = data;
+    const m = data.metrics || {};
 
-    document.getElementById('statActiveTasks').textContent = m.activeTasks.toLocaleString();
-    document.getElementById('statTotalTargets').textContent = `/ ${m.totalTargets.toLocaleString()} link`;
-    document.getElementById('statTotalReactions').textContent = m.totalReactions.toLocaleString();
-    document.getElementById('statTotalComments').textContent = m.totalComments.toLocaleString();
-    document.getElementById('statTotalShares').textContent = m.totalShares.toLocaleString();
-    document.getElementById('statTotalAlerts').textContent = (data.recentAlerts || []).length.toLocaleString();
-    document.getElementById('statErrorTasks').textContent = m.errorTasks.toLocaleString();
-
-    const unreadAlerts = (data.recentAlerts || []).filter(a => !a.acknowledged);
-    const unreadBadge = document.getElementById('unreadAlertCount');
-    if (unreadAlerts.length > 0) {
-      unreadBadge.textContent = unreadAlerts.length;
-      unreadBadge.classList.remove('hidden');
-    } else {
-      unreadBadge.classList.add('hidden');
+    // 1. Last Sync Display (Formatted Vietnam Time)
+    const lastSyncEl = document.getElementById('overviewLastSyncText');
+    if (lastSyncEl) {
+      if (data.lastSyncAt) {
+        const syncDate = new Date(data.lastSyncAt);
+        const timeStr = syncDate.toLocaleTimeString('vi-VN', { hour12: false });
+        const dateStr = syncDate.toLocaleDateString('vi-VN');
+        lastSyncEl.textContent = `${timeStr} ${dateStr}`;
+      } else {
+        lastSyncEl.textContent = 'Chưa có mốc dữ liệu';
+      }
     }
 
+    // 2. KPI 1: Monitored Posts
+    const totalTargets = m.totalTargets || 0;
+    const activeTasks = m.activeTasks || 0;
+    const kpiActive = document.getElementById('kpiActiveTargets');
+    const kpiTotal = document.getElementById('kpiTotalTargets');
+    const kpiRate = document.getElementById('kpiActiveRate');
+    if (kpiActive) kpiActive.textContent = activeTasks.toLocaleString();
+    if (kpiTotal) kpiTotal.textContent = `/ ${totalTargets.toLocaleString()} bài`;
+    if (kpiRate) {
+      if (totalTargets > 0) {
+        const pct = Math.round((activeTasks / totalTargets) * 100);
+        kpiRate.innerHTML = `<span class="w-1.5 h-1.5 rounded-full ${pct > 0 ? 'bg-emerald-400' : 'bg-slate-400'}"></span><span>${pct}% đang hoạt động</span>`;
+      } else {
+        kpiRate.innerHTML = '<span class="text-txt-muted">Chưa có bài giám sát</span>';
+      }
+    }
+
+    // 3. KPI 2: Total Reactions
+    const kpiRx = document.getElementById('kpiTotalReactions');
+    const kpiRxDelta = document.getElementById('kpiDeltaReactions');
+    if (kpiRx) kpiRx.textContent = (m.totalReactions || 0).toLocaleString();
+    const rxDelta = m.periodDelta?.reactions || 0;
+    if (kpiRxDelta) {
+      kpiRxDelta.textContent = `${rxDelta >= 0 ? '+' : ''}${rxDelta.toLocaleString()} rx`;
+    }
+
+    // 4. KPI 3: Total Comments
+    const kpiCmt = document.getElementById('kpiTotalComments');
+    const kpiCmtDelta = document.getElementById('kpiDeltaComments');
+    if (kpiCmt) kpiCmt.textContent = (m.totalComments || 0).toLocaleString();
+    const cmtDelta = m.periodDelta?.comments || 0;
+    if (kpiCmtDelta) {
+      kpiCmtDelta.textContent = `${cmtDelta >= 0 ? '+' : ''}${cmtDelta.toLocaleString()} cmt`;
+    }
+
+    // 5. KPI 4: Total Shares
+    const kpiShare = document.getElementById('kpiTotalShares');
+    const kpiShareDelta = document.getElementById('kpiDeltaShares');
+    if (kpiShare) kpiShare.textContent = (m.totalShares || 0).toLocaleString();
+    const shareDelta = m.periodDelta?.shares || 0;
+    if (kpiShareDelta) {
+      kpiShareDelta.textContent = `${shareDelta >= 0 ? '+' : ''}${shareDelta.toLocaleString()} share`;
+    }
+
+    // 6. KPI 5: Growth Velocity / Total Delta in Period
+    const totalPeriodDelta = rxDelta + cmtDelta + shareDelta;
+    const kpiGrowthVelocity = document.getElementById('kpiGrowthVelocity');
+    const kpiGrowthDelta = document.getElementById('kpiGrowthDelta');
+    if (kpiGrowthVelocity) {
+      kpiGrowthVelocity.textContent = `${totalPeriodDelta >= 0 ? '+' : ''}${totalPeriodDelta.toLocaleString()}`;
+    }
+    if (kpiGrowthDelta) {
+      kpiGrowthDelta.textContent = `${totalPeriodDelta >= 0 ? '+' : ''}${totalPeriodDelta.toLocaleString()} tương tác phát sinh`;
+    }
+
+    // 7. KPI 6: Alerts & Anomalies
+    const kpiAlerts = document.getElementById('kpiTotalAlerts');
+    const kpiUnresolved = document.getElementById('kpiUnresolvedAlerts');
+    const kpiAlertStatus = document.getElementById('kpiAlertStatus');
+    const totalAlerts = m.totalAlerts || 0;
+    const unresolved = m.unresolvedAlerts || 0;
+    if (kpiAlerts) kpiAlerts.textContent = totalAlerts.toLocaleString();
+    if (kpiUnresolved) kpiUnresolved.textContent = unresolved.toLocaleString();
+    if (kpiAlertStatus) {
+      if (unresolved > 0) {
+        kpiAlertStatus.className = 'mt-1 text-[11px] font-semibold text-rose-400 flex items-center gap-1';
+        kpiAlertStatus.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse"></span><span>Cần xử lý cảnh báo</span>';
+      } else {
+        kpiAlertStatus.className = 'mt-1 text-[11px] font-semibold text-emerald-400 flex items-center gap-1';
+        kpiAlertStatus.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span><span>Hệ thống ổn định</span>';
+      }
+    }
+
+    // Unread alert badge in header navigation
+    const unreadBadge = document.getElementById('unreadAlertCount');
+    if (unreadBadge) {
+      if (unresolved > 0) {
+        unreadBadge.textContent = unresolved;
+        unreadBadge.classList.remove('hidden');
+      } else {
+        unreadBadge.classList.add('hidden');
+      }
+    }
+
+    // Render Sub-components
+    renderOverviewChart(data.timeSeries || []);
     renderTopFastest(data.topFastest || []);
-    renderOverviewChart(data.topFastest || []);
+    renderReliabilityBreakdown(data.reliability);
+    renderRecentActivityTimeline(data.recentActivity || []);
   } catch (err) {
-    console.error('Lỗi tải overview:', err);
+    console.error('Lỗi tải overview dashboard:', err);
+  } finally {
+    isFetchingOverview = false;
   }
 }
 
 function renderTopFastest(items) {
   const container = document.getElementById('topFastestList');
-  if (items.length === 0) {
-    container.innerHTML = '<div class="text-xs text-gray-500 italic py-4 text-center">Chưa có bài viết phát sinh tăng trưởng đột biến</div>';
+  if (!container) return;
+
+  if (!items || items.length === 0) {
+    container.innerHTML = '<div class="text-xs text-txt-sub italic py-6 text-center">Chưa có bài viết giám sát nào phát sinh biến động</div>';
     return;
   }
 
-  container.innerHTML = items.map(item => `
-    <div onclick="openDetailModal(${item.id})" class="p-2.5 rounded-lg bg-dark-bg border border-dark-border hover:border-brand-500/50 cursor-pointer transition">
-      <div class="flex items-center justify-between">
-        <span class="font-medium text-white truncate max-w-[160px]">${item.author_name || 'Facebook Post'}</span>
-        <span class="px-1.5 py-0.5 text-[10px] rounded font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
-          +${item.growth_rate_5m || 0}% / 5m
-        </span>
+  container.innerHTML = items.map(item => {
+    const totalEngagement = (item.latest_reactions || 0) + (item.latest_comments || 0) + (item.latest_shares || 0);
+    const growth = item.growth_rate_5m || 0;
+    const authorName = item.author_name || 'Facebook Post';
+    const lastChecked = item.last_checked_at ? new Date(item.last_checked_at).toLocaleTimeString('vi-VN', { hour12: false }) : 'Vừa xong';
+
+    return `
+      <div onclick="openDetailModal(${item.id})" class="p-3 rounded-xl bg-surface-elevated/70 border border-surface-border hover:border-brand-cyan/40 cursor-pointer transition active:scale-[0.99] group">
+        <div class="flex items-start justify-between gap-2">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <span class="font-bold text-xs text-txt-title group-hover:text-brand-cyan transition truncate">${authorName}</span>
+              <span class="text-[9px] px-1.5 py-0.2 rounded font-bold uppercase bg-surface text-txt-muted border border-surface-border">${item.target_type || 'POST'}</span>
+            </div>
+            <p class="text-[11px] text-txt-sub truncate mt-0.5" title="${item.normalized_url}">${item.content_snippet || item.normalized_url}</p>
+          </div>
+          <span class="px-2 py-0.5 text-[10px] rounded font-bold ${growth > 0 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-surface text-txt-muted border border-surface-border'} shrink-0">
+            ${growth > 0 ? '+' + growth + '%/5m' : totalEngagement.toLocaleString() + ' tt'}
+          </span>
+        </div>
+        <div class="mt-2.5 pt-2 border-t border-surface-border flex items-center justify-between text-[10px] text-txt-sub">
+          <div class="flex items-center gap-3">
+            <span class="text-brand-cyan font-semibold">${(item.latest_reactions || 0).toLocaleString()} rx</span>
+            <span class="text-txt-body font-semibold">${(item.latest_comments || 0).toLocaleString()} cmt</span>
+            <span class="text-emerald-400 font-semibold">${(item.latest_shares || 0).toLocaleString()} share</span>
+          </div>
+          <span class="text-txt-muted">${lastChecked}</span>
+        </div>
       </div>
-      <p class="text-[11px] text-gray-400 truncate mt-1">${item.content_snippet || item.normalized_url}</p>
-      <div class="mt-2 flex items-center justify-between text-[11px] text-gray-400">
-        <span>${item.latest_reactions.toLocaleString()} rx</span>
-        <span>${item.latest_comments.toLocaleString()} cmt</span>
-        <span>${item.latest_shares.toLocaleString()} shares</span>
-      </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 
-function renderOverviewChart(fastestItems) {
-  const ctx = document.getElementById('overviewChart').getContext('2d');
-  const labels = fastestItems.map(i => (i.author_name || 'Post').slice(0, 15));
-  const reactionData = fastestItems.map(i => i.latest_reactions);
-  const commentData = fastestItems.map(i => i.latest_comments);
-  const shareData = fastestItems.map(i => i.latest_shares);
+function renderOverviewChart(timeSeries = []) {
+  const canvas = document.getElementById('overviewChart');
+  const emptyState = document.getElementById('overviewChartEmptyState');
+  if (!canvas) return;
+
+  if (!timeSeries || timeSeries.length === 0) {
+    if (emptyState) emptyState.classList.remove('hidden');
+    if (overviewChartInstance) {
+      overviewChartInstance.destroy();
+      overviewChartInstance = null;
+    }
+    return;
+  }
+
+  if (emptyState) emptyState.classList.add('hidden');
+
+  // Format labels in Vietnam Time (HH:mm dd/MM)
+  const labels = timeSeries.map(pt => {
+    const d = new Date(pt.observed_at);
+    return d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false }) + ' ' + (d.getMonth() + 1) + '/' + d.getDate();
+  });
+
+  // Choose cumulative vs delta dataset based on currentChartMode
+  const isCumulative = currentChartMode === 'cumulative';
+  const reactionData = timeSeries.map(pt => isCumulative ? (pt.total_reactions || 0) : (pt.delta_reactions || 0));
+  const commentData = timeSeries.map(pt => isCumulative ? (pt.total_comments || 0) : (pt.delta_comments || 0));
+  const shareData = timeSeries.map(pt => isCumulative ? (pt.total_shares || 0) : (pt.delta_shares || 0));
+
   const theme = getThemeChartColors();
+  const ctx = canvas.getContext('2d');
 
   if (overviewChartInstance) {
     overviewChartInstance.destroy();
   }
 
   overviewChartInstance = new Chart(ctx, {
-    type: 'bar',
+    type: 'line',
     data: {
-      labels: labels.length ? labels : ['Chưa có bài viết'],
+      labels: labels,
       datasets: [
-        { label: 'Cảm xúc (Reactions)', data: reactionData.length ? reactionData : [0], backgroundColor: theme.rxColor, borderRadius: 6 },
-        { label: 'Bình luận (Comments)', data: commentData.length ? commentData : [0], backgroundColor: theme.cmtColor, borderRadius: 6 },
-        { label: 'Chia sẻ (Shares)', data: shareData.length ? shareData : [0], backgroundColor: theme.shareColor, borderRadius: 6 }
+        {
+          label: 'Cảm xúc (Reactions)',
+          data: reactionData,
+          borderColor: theme.rxColor,
+          backgroundColor: isCumulative ? 'rgba(56, 198, 255, 0.08)' : 'transparent',
+          fill: isCumulative,
+          tension: 0.25,
+          pointRadius: timeSeries.length > 20 ? 1 : 3,
+          pointHoverRadius: 6,
+          borderWidth: 2
+        },
+        {
+          label: 'Bình luận (Comments)',
+          data: commentData,
+          borderColor: '#0078A8',
+          backgroundColor: isCumulative ? 'rgba(0, 120, 168, 0.08)' : 'transparent',
+          fill: isCumulative,
+          tension: 0.25,
+          pointRadius: timeSeries.length > 20 ? 1 : 3,
+          pointHoverRadius: 6,
+          borderWidth: 2
+        },
+        {
+          label: 'Chia sẻ (Shares)',
+          data: shareData,
+          borderColor: '#10B981',
+          backgroundColor: isCumulative ? 'rgba(16, 185, 129, 0.08)' : 'transparent',
+          fill: isCumulative,
+          tension: 0.25,
+          pointRadius: timeSeries.length > 20 ? 1 : 3,
+          pointHoverRadius: 6,
+          borderWidth: 2
+        }
       ]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      interaction: {
+        mode: 'index',
+        intersect: false
+      },
       plugins: {
-        legend: { labels: { color: theme.textColor, font: { size: 12, weight: '500' } } }
+        legend: {
+          display: false
+        },
+        tooltip: {
+          backgroundColor: 'rgba(15, 23, 42, 0.92)',
+          titleColor: '#F8FAFC',
+          bodyColor: '#CBD5E1',
+          borderColor: 'rgba(56, 198, 255, 0.3)',
+          borderWidth: 1,
+          padding: 10,
+          boxPadding: 4,
+          callbacks: {
+            title: function(context) {
+              const idx = context[0]?.dataIndex;
+              if (idx !== undefined && timeSeries[idx]) {
+                const date = new Date(timeSeries[idx].observed_at);
+                return date.toLocaleTimeString('vi-VN', { hour12: false }) + ' - ' + date.toLocaleDateString('vi-VN');
+              }
+              return context[0]?.label || '';
+            },
+            label: function(context) {
+              return ` ${context.dataset.label}: ${context.parsed.y.toLocaleString()} ${isCumulative ? 'tổng' : 'phát sinh'}`;
+            }
+          }
+        }
       },
       scales: {
-        x: { ticks: { color: theme.subColor, font: { size: 11 } }, grid: { display: false } },
-        y: { ticks: { color: theme.subColor, font: { size: 11 } }, grid: { color: theme.gridColor } }
+        x: {
+          ticks: { color: theme.subColor, font: { size: 10 }, maxTicksLimit: 8 },
+          grid: { display: false }
+        },
+        y: {
+          ticks: { color: theme.subColor, font: { size: 10 } },
+          grid: { color: theme.gridColor },
+          beginAtZero: true
+        }
       }
     }
   });
+}
+
+function renderReliabilityBreakdown(rel) {
+  if (!rel) return;
+  const grandTotal = rel.grandTotalInteractions || 0;
+  let organicPct = 0;
+  let unknownPct = 100;
+  let suspiciousPct = 0;
+
+  if (grandTotal > 0) {
+    organicPct = Math.min(100, Math.round((rel.organicCount / grandTotal) * 100));
+    suspiciousPct = Math.min(100, Math.round((rel.suspiciousCount / grandTotal) * 100));
+    unknownPct = Math.max(0, 100 - organicPct - suspiciousPct);
+  }
+
+  const barOrg = document.getElementById('barOrganic');
+  const barUnk = document.getElementById('barUnknown');
+  const barSusp = document.getElementById('barSuspicious');
+
+  if (barOrg) barOrg.style.width = `${organicPct}%`;
+  if (barUnk) barUnk.style.width = `${unknownPct}%`;
+  if (barSusp) barSusp.style.width = `${suspiciousPct}%`;
+
+  const valOrgPct = document.getElementById('valOrganicPct');
+  const valOrgCnt = document.getElementById('valOrganicCount');
+  const valUnkPct = document.getElementById('valUnknownPct');
+  const valUnkCnt = document.getElementById('valUnknownCount');
+  const valSuspPct = document.getElementById('valSuspiciousPct');
+  const valSuspCnt = document.getElementById('valSuspiciousCount');
+
+  if (valOrgPct) valOrgPct.textContent = `${organicPct}%`;
+  if (valOrgCnt) valOrgCnt.textContent = `${(rel.organicCount || 0).toLocaleString()} tài khoản`;
+  if (valUnkPct) valUnkPct.textContent = `${unknownPct}%`;
+  if (valUnkCnt) valUnkCnt.textContent = `${(rel.unknownCount || 0).toLocaleString()} tương tác`;
+  if (valSuspPct) valSuspPct.textContent = `${suspiciousPct}%`;
+  if (valSuspCnt) valSuspCnt.textContent = `${(rel.suspiciousCount || 0).toLocaleString()} nghi vấn`;
+}
+
+function renderRecentActivityTimeline(events) {
+  const tbody = document.getElementById('overviewRecentActivityBody');
+  const emptyEl = document.getElementById('overviewActivityEmpty');
+  if (!tbody) return;
+
+  if (!events || events.length === 0) {
+    tbody.innerHTML = '';
+    if (emptyEl) emptyEl.classList.remove('hidden');
+    return;
+  }
+
+  if (emptyEl) emptyEl.classList.add('hidden');
+
+  tbody.innerHTML = events.slice(0, 8).map(ev => {
+    const timeStr = new Date(ev.timestamp).toLocaleTimeString('vi-VN', { hour12: false }) + ' ' + new Date(ev.timestamp).toLocaleDateString('vi-VN');
+    
+    let severityClass = 'bg-surface-elevated text-txt-sub border-surface-border';
+    if (ev.severity === 'CRITICAL') severityClass = 'bg-rose-500/10 text-rose-400 border-rose-500/30';
+    else if (ev.severity === 'WARNING') severityClass = 'bg-amber-500/10 text-amber-400 border-amber-500/30';
+    else if (ev.severity === 'INFO') severityClass = 'bg-brand-blue/10 text-brand-cyan border-brand-cyan/30';
+
+    return `
+      <tr class="hover:bg-surface-elevated/40 transition">
+        <td class="p-2.5 font-mono text-[11px] text-txt-sub whitespace-nowrap">${timeStr}</td>
+        <td class="p-2.5">
+          <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-surface-elevated text-txt-title border border-surface-border">
+            ${ev.eventType}
+          </span>
+        </td>
+        <td class="p-2.5 max-w-[180px] truncate font-medium text-txt-title" title="${ev.authorName}">
+          ${ev.authorName}
+        </td>
+        <td class="p-2.5 text-txt-body max-w-[240px] truncate" title="${ev.message}">
+          ${ev.message}
+        </td>
+        <td class="p-2.5 text-center">
+          <span class="px-2 py-0.5 rounded text-[10px] font-bold border ${severityClass}">
+            ${ev.severity}
+          </span>
+        </td>
+        <td class="p-2.5 text-right">
+          <button onclick="openDetailModal(${ev.targetId})" class="px-2 py-1 bg-surface-elevated hover:bg-brand-blue/20 text-brand-cyan text-[11px] font-semibold rounded border border-surface-border transition">
+            Xem
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
 }
 
 // --- 2. Targets List & Countdown Engine ---

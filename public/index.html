@@ -130,101 +130,332 @@
   <!-- Main Container -->
   <main class="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6">
 
-    <!-- ================= TAB: OVERVIEW ================= -->
+    <!-- ================= TAB: OVERVIEW (REDESIGNED) ================= -->
     <div id="view-overview" class="space-y-6">
-      <!-- 6 Metrics Cards -->
-      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <div class="surface-card rounded-xl p-4">
-          <p class="text-xs font-medium text-txt-sub">Đang giám sát</p>
-          <div class="mt-2 flex items-baseline justify-between">
-            <span id="statActiveTasks" class="text-2xl font-bold text-txt-title">0</span>
-            <span id="statTotalTargets" class="text-xs text-txt-sub">/ 0 link</span>
+
+      <!-- KHU VỰC 1: OVERVIEW HEADER & GLOBAL TIME FILTER -->
+      <div class="surface-card rounded-2xl p-5 border border-surface-border flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div>
+          <div class="flex items-center gap-3">
+            <h2 class="text-lg font-extrabold tracking-tight text-txt-title">Tổng quan hệ thống</h2>
+            <span id="overviewLiveBadge" class="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 inline-flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span id="overviewLiveText">Giám sát 24/7 trực tiếp</span>
+            </span>
           </div>
-          <div class="mt-2 text-xs text-brand-cyan flex items-center gap-1.5">
-            <span class="w-1.5 h-1.5 rounded-full bg-brand-cyan"></span>
-            <span>24/7 scheduler</span>
+          <div class="flex items-center gap-3 text-xs text-txt-sub mt-1">
+            <p>Theo dõi và phân tích tương tác Facebook thời gian thực</p>
+            <span>•</span>
+            <span class="inline-flex items-center gap-1">
+              <svg class="w-3.5 h-3.5 text-txt-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              <span>Đồng bộ gần nhất: <strong id="overviewLastSyncText" class="text-txt-body font-mono font-medium">Đang tải...</strong></span>
+            </span>
           </div>
         </div>
 
-        <div class="surface-card rounded-xl p-4">
-          <p class="text-xs font-medium text-txt-sub">Tổng Cảm xúc (Reactions)</p>
-          <div class="mt-2 flex items-baseline justify-between">
-            <span id="statTotalReactions" class="text-2xl font-bold text-brand-cyan">0</span>
+        <!-- Global Time Filter Pill Group -->
+        <div class="flex items-center gap-2 overflow-x-auto pb-1 lg:pb-0">
+          <span class="text-xs font-medium text-txt-sub shrink-0">Phạm vi:</span>
+          <div id="overviewTimeRangeFilter" class="bg-surface-elevated p-1 rounded-xl border border-surface-border flex items-center gap-1 text-xs">
+            <button type="button" onclick="setOverviewTimeRange('5M')" data-range="5M" class="px-2.5 py-1 rounded-lg transition font-medium text-txt-sub hover:text-txt-body">5M</button>
+            <button type="button" onclick="setOverviewTimeRange('15M')" data-range="15M" class="px-2.5 py-1 rounded-lg transition font-medium text-txt-sub hover:text-txt-body">15M</button>
+            <button type="button" onclick="setOverviewTimeRange('30M')" data-range="30M" class="px-2.5 py-1 rounded-lg transition font-medium text-txt-sub hover:text-txt-body">30M</button>
+            <button type="button" onclick="setOverviewTimeRange('1H')" data-range="1H" class="px-2.5 py-1 rounded-lg transition font-medium text-txt-sub hover:text-txt-body">1H</button>
+            <button type="button" onclick="setOverviewTimeRange('3H')" data-range="3H" class="px-2.5 py-1 rounded-lg transition font-medium text-txt-sub hover:text-txt-body">3H</button>
+            <button type="button" onclick="setOverviewTimeRange('6H')" data-range="6H" class="px-2.5 py-1 rounded-lg transition font-medium text-txt-sub hover:text-txt-body">6H</button>
+            <button type="button" onclick="setOverviewTimeRange('12H')" data-range="12H" class="px-2.5 py-1 rounded-lg transition font-medium text-txt-sub hover:text-txt-body">12H</button>
+            <button type="button" onclick="setOverviewTimeRange('24H')" data-range="24H" class="px-2.5 py-1 rounded-lg transition font-semibold bg-brand-blue text-white shadow-sm border border-brand-cyan/20">24H</button>
+            <button type="button" onclick="setOverviewTimeRange('7D')" data-range="7D" class="px-2.5 py-1 rounded-lg transition font-medium text-txt-sub hover:text-txt-body">7D</button>
+            <button type="button" onclick="setOverviewTimeRange('30D')" data-range="30D" class="px-2.5 py-1 rounded-lg transition font-medium text-txt-sub hover:text-txt-body">30D</button>
           </div>
-          <div class="mt-2 text-xs text-txt-muted">7 loại cảm xúc Graph API</div>
-        </div>
-
-        <div class="surface-card rounded-xl p-4">
-          <p class="text-xs font-medium text-txt-sub">Tổng Bình luận (Comments)</p>
-          <div class="mt-2 flex items-baseline justify-between">
-            <span id="statTotalComments" class="text-2xl font-bold text-txt-title">0</span>
-          </div>
-          <div class="mt-2 text-xs text-txt-muted">Đồng bộ liên tục</div>
-        </div>
-
-        <div class="surface-card rounded-xl p-4">
-          <p class="text-xs font-medium text-txt-sub">Tổng Chia sẻ (Shares)</p>
-          <div class="mt-2 flex items-baseline justify-between">
-            <span id="statTotalShares" class="text-2xl font-bold text-brand-cyan">0</span>
-          </div>
-          <div class="mt-2 text-xs text-txt-muted">Phân biệt ẩn danh</div>
-        </div>
-
-        <div class="surface-card rounded-xl p-4">
-          <p class="text-xs font-medium text-txt-sub">Cảnh báo / Bất thường</p>
-          <div class="mt-2 flex items-baseline justify-between">
-            <span id="statTotalAlerts" class="text-2xl font-bold text-rose-500">0</span>
-          </div>
-          <div class="mt-2 text-xs text-rose-500">Vượt ngưỡng tốc độ</div>
-        </div>
-
-        <div class="surface-card rounded-xl p-4">
-          <p class="text-xs font-medium text-txt-sub">Trạng thái lỗi / Giới hạn</p>
-          <div class="mt-2 flex items-baseline justify-between">
-            <span id="statErrorTasks" class="text-2xl font-bold text-txt-muted">0</span>
-          </div>
-          <div class="mt-2 text-xs text-txt-muted">Cần cấp quyền/xóa</div>
         </div>
       </div>
 
-      <!-- Main Charts & Top Fastest Items -->
+      <!-- KHU VỰC 2: KPI OVERVIEW (6 THẺ THỐNG KÊ CHUẨN) -->
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <!-- KPI 1: Monitored Posts -->
+        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between">
+          <div class="flex items-center justify-between text-txt-sub">
+            <span class="text-xs font-semibold">Bài viết giám sát</span>
+            <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+          </div>
+          <div class="mt-3">
+            <div class="flex items-baseline gap-1.5">
+              <span id="kpiActiveTargets" class="text-2xl font-bold text-txt-title">0</span>
+              <span id="kpiTotalTargets" class="text-xs text-txt-sub font-medium">/ 0 bài</span>
+            </div>
+            <div id="kpiActiveRate" class="mt-1 text-[11px] text-emerald-400 font-medium flex items-center gap-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+              <span>100% hoạt động</span>
+            </div>
+          </div>
+          <div class="mt-3 pt-2 border-t border-surface-border text-[10px] text-txt-muted flex justify-between">
+            <span>Toàn hệ thống</span>
+            <span class="text-brand-cyan">24/7 Engine</span>
+          </div>
+        </div>
+
+        <!-- KPI 2: Total Reactions & 7 Reactions Breakdown -->
+        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between">
+          <div class="flex items-center justify-between text-txt-sub">
+            <span class="text-xs font-semibold">Tổng Cảm xúc</span>
+            <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5"></path></svg>
+          </div>
+          <div class="mt-3">
+            <div class="flex items-baseline gap-2">
+              <span id="kpiTotalReactions" class="text-2xl font-bold text-brand-cyan">0</span>
+            </div>
+            <div id="kpiDeltaReactionsBadge" class="mt-1 text-[11px] font-semibold text-emerald-400 flex items-center gap-1">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path></svg>
+              <span id="kpiDeltaReactions">+0 rx</span>
+            </div>
+          </div>
+          <div class="mt-3 pt-2 border-t border-surface-border text-[10px] text-txt-muted flex justify-between items-center" id="kpiRxBreakdownMini">
+            <span id="kpiRxRangeLabel">24H qua</span>
+            <span class="text-txt-sub font-medium truncate" title="Like, Love, Care, Haha, Wow, Sad, Angry">7 biểu cảm Meta</span>
+          </div>
+        </div>
+
+        <!-- KPI 3: Comments -->
+        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between">
+          <div class="flex items-center justify-between text-txt-sub">
+            <span class="text-xs font-semibold">Bình luận</span>
+            <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+          </div>
+          <div class="mt-3">
+            <div class="flex items-baseline gap-2">
+              <span id="kpiTotalComments" class="text-2xl font-bold text-txt-title">0</span>
+            </div>
+            <div id="kpiDeltaCommentsBadge" class="mt-1 text-[11px] font-semibold text-emerald-400 flex items-center gap-1">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path></svg>
+              <span id="kpiDeltaComments">+0 cmt</span>
+            </div>
+          </div>
+          <div class="mt-3 pt-2 border-t border-surface-border text-[10px] text-txt-muted flex justify-between">
+            <span id="kpiCmtRangeLabel">So với kỳ trước</span>
+            <span class="text-txt-sub font-medium">Bóc tách nội dung</span>
+          </div>
+        </div>
+
+        <!-- KPI 4: Shares -->
+        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between">
+          <div class="flex items-center justify-between text-txt-sub">
+            <span class="text-xs font-semibold">Chia sẻ</span>
+            <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"></path></svg>
+          </div>
+          <div class="mt-3">
+            <div class="flex items-baseline gap-2">
+              <span id="kpiTotalShares" class="text-2xl font-bold text-txt-title">0</span>
+            </div>
+            <div id="kpiDeltaSharesBadge" class="mt-1 text-[11px] font-semibold text-emerald-400 flex items-center gap-1">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path></svg>
+              <span id="kpiDeltaShares">+0 share</span>
+            </div>
+          </div>
+          <div class="mt-3 pt-2 border-t border-surface-border text-[10px] text-txt-muted flex justify-between">
+            <span id="kpiShareRangeLabel">Lan truyền</span>
+            <span class="text-txt-sub font-medium">Toàn mạng</span>
+          </div>
+        </div>
+
+        <!-- KPI 5: Growth Velocity -->
+        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between">
+          <div class="flex items-center justify-between text-txt-sub">
+            <span class="text-xs font-semibold">Tăng trưởng</span>
+            <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+          </div>
+          <div class="mt-3">
+            <div class="flex items-baseline gap-1.5">
+              <span id="kpiGrowthVelocity" class="text-2xl font-bold text-txt-title">0</span>
+              <span class="text-xs text-txt-sub">tác vụ/kỳ</span>
+            </div>
+            <div id="kpiGrowthRateLabel" class="mt-1 text-[11px] font-semibold text-emerald-400 flex items-center gap-1">
+              <span id="kpiGrowthDelta">+0 tương tác</span>
+            </div>
+          </div>
+          <div class="mt-3 pt-2 border-t border-surface-border text-[10px] text-txt-muted flex justify-between">
+            <span>Tốc độ biến thiên</span>
+            <span class="text-emerald-400 font-medium">Phát sinh thực</span>
+          </div>
+        </div>
+
+        <!-- KPI 6: Alerts & Anomalies -->
+        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between">
+          <div class="flex items-center justify-between text-txt-sub">
+            <span class="text-xs font-semibold">Cảnh báo</span>
+            <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+          </div>
+          <div class="mt-3">
+            <div class="flex items-baseline gap-1.5">
+              <span id="kpiTotalAlerts" class="text-2xl font-bold text-rose-500">0</span>
+              <span id="kpiUnresolvedContainer" class="text-xs text-txt-sub font-medium">(chưa đọc: <span id="kpiUnresolvedAlerts">0</span>)</span>
+            </div>
+            <div id="kpiAlertStatus" class="mt-1 text-[11px] font-semibold text-emerald-400 flex items-center gap-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+              <span>Hệ thống ổn định</span>
+            </div>
+          </div>
+          <div class="mt-3 pt-2 border-t border-surface-border text-[10px] text-txt-muted flex justify-between">
+            <span id="kpiAlertRangeLabel">Phạm vi 24H</span>
+            <span class="text-txt-sub font-medium">Bất thường & Ngưỡng</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- KHU VỰC 3 & 4: BIỂU ĐỒ PHÂN TÍCH TƯƠNG TÁC + BÀI VIẾT NỔI BẬT -->
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- Main Growth Chart -->
-        <div class="lg:col-span-2 surface-card rounded-xl p-5">
+
+        <!-- KHU VỰC 3: MULTI-SERIES INTERACTION CHART (2/3 Grid) -->
+        <div class="lg:col-span-2 surface-card rounded-2xl p-5 border border-surface-border flex flex-col justify-between">
+          <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div>
+              <div class="flex items-center gap-2.5">
+                <h3 class="text-sm font-bold text-txt-title">Phân tích tương tác thời gian thực</h3>
+                <span id="overviewChartRangeBadge" class="text-[11px] px-2 py-0.5 rounded-full bg-surface-elevated text-brand-cyan border border-surface-border font-mono font-medium">Phạm vi: 24H</span>
+              </div>
+              <p class="text-xs text-txt-sub mt-0.5">3 chuỗi dữ liệu (Cảm xúc, Bình luận, Chia sẻ) chuẩn múi giờ Việt Nam (UTC+7)</p>
+            </div>
+
+            <!-- Mode Selector: Cumulative vs Interval Delta -->
+            <div class="flex items-center gap-2">
+              <div class="bg-surface-elevated p-1 rounded-xl border border-surface-border flex items-center gap-1 text-[11px]">
+                <button type="button" id="btnChartModeCumulative" onclick="setOverviewChartMode('cumulative')" class="px-2.5 py-1 rounded-lg font-semibold bg-brand-blue text-white shadow-sm border border-brand-cyan/20 transition">Lũy kế</button>
+                <button type="button" id="btnChartModeDelta" onclick="setOverviewChartMode('delta')" class="px-2.5 py-1 rounded-lg font-medium text-txt-sub hover:text-txt-body transition">Phát sinh kỳ</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Chart Container -->
+          <div class="relative h-72 w-full">
+            <canvas id="overviewChart"></canvas>
+            <div id="overviewChartEmptyState" class="hidden absolute inset-0 flex flex-col items-center justify-center bg-surface/80 rounded-xl text-center p-4">
+              <svg class="w-8 h-8 text-txt-muted mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+              <p class="text-xs font-semibold text-txt-title">Chưa có dữ liệu snapshot trong phạm vi này</p>
+              <p class="text-[11px] text-txt-sub mt-0.5">Hệ thống scheduler tự động lưu mốc tương tác theo chu kỳ quét định kỳ.</p>
+            </div>
+          </div>
+
+          <!-- Chart Sub-Legend & Note -->
+          <div class="mt-4 pt-3 border-t border-surface-border flex flex-wrap items-center justify-between text-[11px] text-txt-sub gap-2">
+            <div class="flex items-center gap-4">
+              <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-brand-cyan"></span><span class="text-txt-body">Cảm xúc (Reactions)</span></span>
+              <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-brand-blue"></span><span class="text-txt-body">Bình luận (Comments)</span></span>
+              <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span><span class="text-txt-body">Chia sẻ (Shares)</span></span>
+            </div>
+            <span class="text-txt-muted">Nhấp vào chú giải biểu đồ để ẩn/hiện chuỗi</span>
+          </div>
+        </div>
+
+        <!-- KHU VỰC 4: TOP 5 BÀI VIẾT NỔI BẬT (1/3 Grid) -->
+        <div class="surface-card rounded-2xl p-5 border border-surface-border flex flex-col justify-between">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h3 class="text-sm font-bold text-txt-title">Bài viết nổi bật</h3>
+              <p class="text-[11px] text-txt-sub">Top 5 bài viết có biến động mạnh</p>
+            </div>
+            <span class="text-[10px] px-2 py-0.5 rounded bg-surface-elevated text-brand-cyan border border-surface-border font-semibold">Tự động xếp hạng</span>
+          </div>
+
+          <!-- List of 5 items -->
+          <div id="topFastestList" class="flex-1 space-y-2.5 overflow-y-auto max-h-[300px] pr-1">
+            <!-- Populated dynamically -->
+          </div>
+
+          <div class="mt-3 pt-2.5 border-t border-surface-border flex items-center justify-between text-[11px]">
+            <span class="text-txt-muted">Chọn bài viết để mở chi tiết</span>
+            <button onclick="switchTab('targets')" class="text-brand-cyan hover:underline font-semibold flex items-center gap-1">
+              <span>Xem tất cả</span>
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- KHU VỰC 5 & 6: PHÂN TÍCH ĐỘ TIN CẬY + HOẠT ĐỘNG GẦN ĐÂY -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        <!-- KHU VỰC 5: ENGAGEMENT RELIABILITY (1/3 Grid) -->
+        <div class="surface-card rounded-2xl p-5 border border-surface-border flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <h3 class="text-sm font-bold text-txt-title">Độ tin cậy tương tác</h3>
+              <span id="reliabilityStatusBadge" class="text-[10px] px-2 py-0.5 rounded-full bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/20 font-semibold">Bóc tách thực tế</span>
+            </div>
+            <p class="text-xs text-txt-sub mb-4">Phân loại dữ liệu người dùng dựa trên khả năng định danh thực tế của Meta</p>
+
+            <!-- Distribution Multi-segment Progress Bar -->
+            <div class="space-y-2">
+              <div class="h-3 w-full bg-surface-elevated rounded-full overflow-hidden flex border border-surface-border" id="reliabilityBar">
+                <div id="barOrganic" class="bg-brand-cyan h-full transition-all duration-500" style="width: 0%" title="Tự nhiên định danh"></div>
+                <div id="barUnknown" class="bg-slate-500 h-full transition-all duration-500" style="width: 100%" title="Ẩn danh / Không đủ dữ liệu Meta"></div>
+                <div id="barSuspicious" class="bg-rose-500 h-full transition-all duration-500" style="width: 0%" title="Nghi vấn"></div>
+              </div>
+
+              <!-- Percentages indicator row -->
+              <div class="grid grid-cols-3 gap-2 text-center pt-2">
+                <div class="bg-surface-elevated/60 p-2 rounded-xl border border-surface-border">
+                  <div class="text-[10px] text-txt-sub font-semibold">ORGANIC</div>
+                  <div id="valOrganicPct" class="text-sm font-bold text-brand-cyan mt-0.5">0%</div>
+                  <div id="valOrganicCount" class="text-[10px] text-txt-muted mt-0.5">0 tài khoản</div>
+                </div>
+                <div class="bg-surface-elevated/60 p-2 rounded-xl border border-surface-border">
+                  <div class="text-[10px] text-txt-sub font-semibold">UNKNOWN</div>
+                  <div id="valUnknownPct" class="text-sm font-bold text-slate-300 mt-0.5">100%</div>
+                  <div id="valUnknownCount" class="text-[10px] text-txt-muted mt-0.5">0 tương tác</div>
+                </div>
+                <div class="bg-surface-elevated/60 p-2 rounded-xl border border-surface-border">
+                  <div class="text-[10px] text-txt-sub font-semibold">SUSPICIOUS</div>
+                  <div id="valSuspiciousPct" class="text-sm font-bold text-rose-400 mt-0.5">0%</div>
+                  <div id="valSuspiciousCount" class="text-[10px] text-txt-muted mt-0.5">0 nghi vấn</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4 pt-3 border-t border-surface-border text-[11px] text-txt-muted leading-relaxed">
+            <span class="font-medium text-txt-sub">Nguyên tắc minh bạch:</span> Meta Graph API chỉ cấp thông tin danh tính đối với bình luận hoặc người tương tác trên Fanpage được phân quyền. Các lượt reaction công khai tổng hợp ngoài quyền quản trị được xếp vào nhóm <code class="text-txt-sub font-mono">UNKNOWN</code> đúng chuẩn kỹ thuật.
+          </div>
+        </div>
+
+        <!-- KHU VỰC 6: RECENT ACTIVITY TIMELINE (2/3 Grid) -->
+        <div class="lg:col-span-2 surface-card rounded-2xl p-5 border border-surface-border flex flex-col justify-between">
           <div class="flex items-center justify-between mb-4">
             <div>
-              <h2 class="text-sm font-semibold text-txt-title">Lịch sử tăng trưởng tổng hợp theo thời gian</h2>
-              <p class="text-xs text-txt-sub">Phân bố 3 nhóm tương tác (Cảm xúc, Bình luận, Chia sẻ) chuẩn xác</p>
+              <h3 class="text-sm font-bold text-txt-title">Nhật ký sự kiện & Hoạt động gần đây</h3>
+              <p class="text-xs text-txt-sub mt-0.5">Dòng sự kiện giám sát, cảnh báo và thay đổi tương tác tức thời</p>
             </div>
-            <span class="text-xs px-2.5 py-1 bg-surface-elevated text-brand-cyan rounded border border-surface-border">Live Graph API</span>
+            <button type="button" onclick="fetchOverview(currentOverviewRange)" class="px-2.5 py-1 text-xs bg-surface-elevated hover:bg-surface text-txt-body border border-surface-border rounded-lg transition flex items-center gap-1.5 active:scale-95">
+              <svg class="w-3.5 h-3.5 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+              <span>Làm mới</span>
+            </button>
           </div>
-          <div class="h-64">
-            <canvas id="overviewChart"></canvas>
+
+          <!-- Activity Timeline Table -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-surface-elevated text-txt-sub uppercase tracking-wider font-semibold border-b border-surface-border">
+                <tr>
+                  <th class="p-2.5">Thời gian</th>
+                  <th class="p-2.5">Sự kiện</th>
+                  <th class="p-2.5">Bài viết liên quan</th>
+                  <th class="p-2.5">Nội dung biến động</th>
+                  <th class="p-2.5 text-center">Mức độ</th>
+                  <th class="p-2.5 text-right">Chi tiết</th>
+                </tr>
+              </thead>
+              <tbody id="overviewRecentActivityBody" class="divide-y border-surface-border">
+                <!-- Populated dynamically -->
+              </tbody>
+            </table>
+          </div>
+
+          <div id="overviewActivityEmpty" class="hidden text-center py-6 text-txt-sub text-xs italic">
+            Chưa có sự kiện cảnh báo hoặc biến động nào được ghi nhận gần đây.
           </div>
         </div>
 
-        <!-- Top Fastest Growing Content -->
-        <div class="surface-card rounded-xl p-5 flex flex-col">
-          <div class="flex items-center justify-between mb-3">
-            <h2 class="text-sm font-semibold text-txt-title">Tăng nhanh nhất (5 phút)</h2>
-            <span class="text-xs text-brand-cyan font-semibold">Tốc độ cao</span>
-          </div>
-          <div id="topFastestList" class="flex-1 space-y-2.5 overflow-y-auto max-h-64 pr-1">
-            <!-- Dynamic items -->
-          </div>
-        </div>
       </div>
 
-      <!-- Realtime Activity Stream -->
-      <div class="surface-card rounded-xl p-5">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="text-sm font-semibold text-txt-title">Dòng dữ liệu đồng bộ thời gian thực (Telemetry Stream)</h2>
-          <span class="text-xs text-txt-sub">Cập nhật sự kiện tức thời qua WebSocket</span>
-        </div>
-        <div id="activityStream" class="space-y-2 text-xs font-mono max-h-48 overflow-y-auto pr-1">
-          <div class="text-txt-sub italic py-2">Đang lắng nghe gói tin từ scheduler nền...</div>
-        </div>
-      </div>
     </div>
 
     <!-- ================= TAB: TARGETS ================= -->

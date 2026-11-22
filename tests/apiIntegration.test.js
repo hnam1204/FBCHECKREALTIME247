@@ -24,6 +24,16 @@ test('API Integration: Overview and batch parse endpoints', async (t) => {
   assert.equal(overviewRes.status, 200);
   const overviewData = await overviewRes.json();
   assert.ok(overviewData.metrics);
+  assert.ok(Array.isArray(overviewData.timeSeries));
+  assert.ok(overviewData.reliability);
+  assert.ok(Array.isArray(overviewData.recentActivity));
+  assert.equal(overviewData.range, '24H');
+
+  // Test /api/overview with custom range parameter
+  const overviewRangeRes = await fetch(`${baseUrl}/api/overview?range=1H`);
+  assert.equal(overviewRangeRes.status, 200);
+  const overviewRangeData = await overviewRangeRes.json();
+  assert.equal(overviewRangeData.range, '1H');
 
   // 3. Test /api/targets/batch-parse
   const parseRes = await fetch(`${baseUrl}/api/targets/batch-parse`, {

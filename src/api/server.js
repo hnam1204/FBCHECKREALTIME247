@@ -39,9 +39,27 @@ function createServer() {
 
   // 1. Overview Dashboard Summary (Section 7)
   app.get('/api/overview', (req, res) => {
-    const totalTargets = db.prepare('SELECT COUNT(*) as count FROM monitored_targets').get().count;
-    const activeTasks = db.prepare("SELECT COUNT(*) as count FROM monitored_targets WHERE status = 'ACTIVE'").get().count;
-    const errorTasks = db.prepare("SELECT COUNT(*) as count FROM monitored_targets WHERE status IN ('INACCESSIBLE', 'NEEDS_AUTH')").get().count;
+    const rangeParam = req.query.range || '24H';
+    const rangeMap = {
+      '5M': 5 * 60 * 1000,
+      '15M': 15 * 60 * 1000,
+      '30M': 30 * 60 * 1000,
+      '1H': 60 * 60 * 1000,
+      '3H': 3 * 60 * 60 * 1000,
+      '6H': 6 * 60 * 60 * 1000,
+      '12H': 12 * 60 * 60 * 1000,
+      '24H': 24 * 60 * 60 * 1000,
+      '7D': 7 * 24 * 60 * 60 * 1000,
+      '30D': 30 * 24 * 60 * 60 * 1000,
+    };
+    const rangeMs = rangeMap[rangeParam] || (24 * 60 * 60 * 1000);
+    const nowMs = Date.now();
+    const cutoffTime = new Date(nowMs - rangeMs).toISOString();
+    const priorCutoffTime = new Date(nowMs - 2 * rangeMs).toISOString();
+
+    const totalTargets = db.prepare('SELECT COUNT(*) as count FROM monitored_targets').get()?.count || 0;
+    const activeTasks = db.prepare("SELECT COUNT(*) as count FROM monitored_targets WHERE status = 'ACTIVE'").get()?.count || 0;
+    const errorTasks = db.prepare("SELECT COUNT(*) as count FROM monitored_targets WHERE status IN ('INACCESSIBLE', 'NEEDS_AUTH')").get()?.count || 0;
 
     const totals = db.prepare(`
       SELECT 
@@ -49,21 +67,114 @@ function createServer() {
         SUM(latest_comments) as total_comments,
         SUM(latest_shares) as total_shares
       FROM monitored_targets
-    `).get();
+    `).get() || {};
 
-    // Fastest growing targets (5m rate or latest reactions delta)
+    // Breakdown of 7 reactions across latest snapshots
+    const reactionBreakdown = db.prepare(`
+      SELECT 
+        SUM(s.like_count) as like_count,
+        SUM(s.love_count) as love_count,
+        SUM(s.care_count) as care_count,
+        SUM(s.haha_count) as haha_count,
+        SUM(s.wow_count) as wow_count,
+        SUM(s.sad_count) as sad_count,
+        SUM(s.angry_count) as angry_count
+      FROM snapshots s
+      INNER JOIN (
+        SELECT target_id, MAX(id) as max_id
+        FROM snapshots
+        GROUP BY target_id
+      ) latest ON s.target_id = latest.target_id AND s.id = latest.max_id
+    `).get() || { like_count: 0, love_count: 0, care_count: 0, haha_count: 0, wow_count: 0, sad_count: 0, angry_count: 0 };
+
+    // Delta in the selected period vs prior period
+    const periodDelta = db.prepare(`
+      SELECT 
+        SUM(delta_reactions) as delta_reactions,
+        SUM(delta_comments) as delta_comments,
+        SUM(delta_shares) as delta_shares
+      FROM snapshots
+      WHERE observed_at >= ?
+    `).get(cutoffTime) || {};
+
+    const prevPeriodDelta = db.prepare(`
+      SELECT 
+        SUM(delta_reactions) as delta_reactions,
+        SUM(delta_comments) as delta_comments,
+        SUM(delta_shares) as delta_shares
+      FROM snapshots
+      WHERE observed_at >= ? AND observed_at < ?
+    `).get(priorCutoffTime, cutoffTime) || {};
+
+    const totalAlertsInPeriod = db.prepare('SELECT COUNT(*) as count FROM alerts WHERE detected_at >= ?').get(cutoffTime)?.count || 0;
+    const unresolvedAlerts = db.prepare('SELECT COUNT(*) as count FROM alerts WHERE acknowledged = 0').get()?.count || 0;
+    const lastSyncAt = db.prepare('SELECT MAX(observed_at) as last_sync FROM snapshots').get()?.last_sync || null;
+
+    // Time-series points for the chart in the selected range
+    const rawSnapshots = db.prepare(`
+      SELECT observed_at, 
+             SUM(total_reactions) as total_reactions,
+             SUM(total_comments) as total_comments,
+             SUM(total_shares) as total_shares,
+             SUM(delta_reactions) as delta_reactions,
+             SUM(delta_comments) as delta_comments,
+             SUM(delta_shares) as delta_shares
+      FROM snapshots
+      WHERE observed_at >= ?
+      GROUP BY observed_at
+      ORDER BY observed_at ASC
+    `).all(cutoffTime) || [];
+
+    let timeSeries = [];
+    if (rawSnapshots.length <= 30) {
+      timeSeries = rawSnapshots;
+    } else {
+      const step = rawSnapshots.length / 25;
+      for (let i = 0; i < 25; i++) {
+        const idx = Math.min(Math.floor(i * step), rawSnapshots.length - 1);
+        timeSeries.push(rawSnapshots[idx]);
+      }
+      if (rawSnapshots.length > 0 && timeSeries[timeSeries.length - 1] !== rawSnapshots[rawSnapshots.length - 1]) {
+        timeSeries.push(rawSnapshots[rawSnapshots.length - 1]);
+      }
+    }
+
+    // Top 5 noteworthy items
     const topFastest = db.prepare(`
       SELECT t.id, t.author_name, t.content_snippet, t.target_type, t.normalized_url,
-             t.latest_reactions, t.latest_comments, t.latest_shares,
+             t.latest_reactions, t.latest_comments, t.latest_shares, t.status, t.last_checked_at,
              s.delta_reactions, s.growth_rate_5m, s.growth_rate_1h
       FROM monitored_targets t
       LEFT JOIN snapshots s ON s.target_id = t.id AND s.id = (
         SELECT MAX(id) FROM snapshots WHERE target_id = t.id
       )
-      WHERE t.status = 'ACTIVE'
-      ORDER BY s.growth_rate_5m DESC, s.delta_reactions DESC
+      ORDER BY s.growth_rate_5m DESC, (t.latest_reactions + t.latest_comments + t.latest_shares) DESC
       LIMIT 5
-    `).all();
+    `).all() || [];
+
+    // Engagement reliability analysis
+    const totalIdentified = db.prepare('SELECT COUNT(*) as count FROM accounts_interacted').get()?.count || 0;
+    const grandTotalInteractions = (totals.total_reactions || 0) + (totals.total_comments || 0) + (totals.total_shares || 0);
+    const suspiciousCount = db.prepare(`
+      SELECT COUNT(*) as count FROM accounts_interacted 
+      WHERE comment_text IN (
+        SELECT comment_text FROM accounts_interacted WHERE comment_text IS NOT NULL AND length(comment_text) > 3 
+        GROUP BY comment_text HAVING count(*) > 3
+      )
+    `).get()?.count || 0;
+
+    const organicCount = Math.max(0, totalIdentified - suspiciousCount);
+    const unknownCount = Math.max(0, grandTotalInteractions - totalIdentified);
+
+    const reliability = {
+      status: 'AVAILABLE',
+      totalIdentified,
+      organicCount,
+      suspiciousCount,
+      unknownCount,
+      grandTotalInteractions,
+      note: 'Meta Graph API chỉ trả về danh tính ở phạm vi phân quyền cho phép; các reaction dạng tổng hợp ngoài page được xếp vào nhóm UNKNOWN theo nguyên tắc dữ liệu thực.'
+    };
 
     // Recent 10 alerts
     const recentAlerts = db.prepare(`
@@ -72,19 +183,49 @@ function createServer() {
       JOIN monitored_targets t ON t.id = a.target_id
       ORDER BY a.detected_at DESC
       LIMIT 10
-    `).all();
+    `).all() || [];
+
+    const recentActivity = recentAlerts.map(a => ({
+      id: a.id,
+      timestamp: a.detected_at,
+      targetId: a.target_id,
+      authorName: a.author_name || 'Facebook Post',
+      eventType: a.alert_type,
+      message: a.message,
+      severity: a.severity,
+      delta: a.delta,
+      acknowledged: a.acknowledged
+    }));
 
     res.json({
+      range: rangeParam,
+      lastSyncAt,
       metrics: {
         totalTargets,
         activeTasks,
         errorTasks,
         totalReactions: totals.total_reactions || 0,
         totalComments: totals.total_comments || 0,
-        totalShares: totals.total_shares || 0
+        totalShares: totals.total_shares || 0,
+        reactionBreakdown,
+        periodDelta: {
+          reactions: periodDelta.delta_reactions || 0,
+          comments: periodDelta.delta_comments || 0,
+          shares: periodDelta.delta_shares || 0
+        },
+        prevPeriodDelta: {
+          reactions: prevPeriodDelta.delta_reactions || 0,
+          comments: prevPeriodDelta.delta_comments || 0,
+          shares: prevPeriodDelta.delta_shares || 0
+        },
+        totalAlerts: totalAlertsInPeriod,
+        unresolvedAlerts
       },
+      timeSeries,
       topFastest,
-      recentAlerts
+      recentAlerts,
+      recentActivity,
+      reliability
     });
   });
 
