@@ -252,10 +252,8 @@ function handleLiveEvent(evt) {
   const time = new Date().toLocaleTimeString('vi-VN');
 
   if (evt.type === 'LIVE_METRICS') {
-    if (Array.isArray(evt.targets) && evt.targets.length > 0) {
-      cachedTargets = evt.targets;
-      if (currentTab === 'targets') renderTargetsTable(cachedTargets);
-    }
+    // WebSocket metrics exclude paused targets; never replace the paginated REST list.
+    // The targets table is refreshed through fetchTargets(), which owns its filters and totals.
     if (evt.totals) {
       const elRx = document.getElementById('kpiTotalReactions') || document.getElementById('statTotalReactions');
       const elCm = document.getElementById('kpiTotalComments') || document.getElementById('statTotalComments');
