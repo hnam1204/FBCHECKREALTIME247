@@ -1,36 +1,48 @@
-import crypto from 'node:crypto';
 import { parseBatchUrls, normalizeUrl, analyzeUrl } from './analyzer/urlAnalyzer.js';
 import { extractCUser, isCheckpointOrLogin, parseMbasicHtml, parseMbasicReactionsBreakdown, parseMbasicReactors } from './collector/mbasicCollector.js';
 import { parseBatchProxies, parseProxyString } from './collector/proxyHelper.js';
 import { computeComparisonAnalytics } from './analytics/comparisonEngine.js';
 
-// --- Crypto Utilities (AES-256-GCM) ---
-const ALGORITHM = 'aes-256-gcm';
-const IV_LENGTH = 12;
-
-function encryptToken(text, masterHexKey) {
-  if (!text) return '';
-  const key = Buffer.from(masterHexKey.slice(0, 64), 'hex');
-  const iv = crypto.randomBytes(IV_LENGTH);
-  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
-  let encrypted = cipher.update(text, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  const tag = cipher.getAuthTag().toString('hex');
-  return `${iv.toString('hex')}:${tag}:${encrypted}`;
+// --- Web Crypto Utilities (AES-256-GCM - Pure Native Web Standards) ---
+function hexToBytes(hex) {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+  }
+  return bytes;
 }
 
-function decryptToken(payload, masterHexKey) {
+function bytesToHex(bytes) {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function encryptToken(text, masterHexKey) {
+  if (!text) return '';
+  const key = await crypto.subtle.importKey('raw', hexToBytes(masterHexKey.slice(0, 64)), { name: 'AES-GCM' }, false, ['encrypt']);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(text)));
+  const tag = encrypted.slice(-16);
+  const ciphertext = encrypted.slice(0, -16);
+  return `${bytesToHex(iv)}:${bytesToHex(tag)}:${bytesToHex(ciphertext)}`;
+}
+
+async function decryptToken(payload, masterHexKey) {
   if (!payload || !payload.includes(':')) return '';
   const [ivHex, tagHex, encryptedHex] = payload.split(':');
   if (!ivHex || !tagHex || !encryptedHex) return '';
-  const key = Buffer.from(masterHexKey.slice(0, 64), 'hex');
-  const iv = Buffer.from(ivHex, 'hex');
-  const tag = Buffer.from(tagHex, 'hex');
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-  decipher.setAuthTag(tag);
-  let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  return decrypted;
+  try {
+    const key = await crypto.subtle.importKey('raw', hexToBytes(masterHexKey.slice(0, 64)), { name: 'AES-GCM' }, false, ['decrypt']);
+    const iv = hexToBytes(ivHex);
+    const ct = hexToBytes(encryptedHex);
+    const tag = hexToBytes(tagHex);
+    const combined = new Uint8Array(ct.length + tag.length);
+    combined.set(ct, 0);
+    combined.set(tag, ct.length);
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, combined);
+    return new TextDecoder().decode(decrypted);
+  } catch (e) {
+    return '';
+  }
 }
 
 // Helper: JSON Response
@@ -807,7 +819,7 @@ async function handleApiRoute(pathname, method, request, env, url) {
     const grantedScopes = perms.filter(p => p.status === 'granted').map(p => p.permission).join(',');
 
     const now = new Date().toISOString();
-    const encToken = encryptToken(token, masterKey);
+    const encToken = await encryptToken(token, masterKey);
 
     await db.prepare(`
       INSERT INTO accounts (name, account_type, fb_account_id, encrypted_token, scopes, status, created_at)
@@ -819,7 +831,7 @@ async function handleApiRoute(pathname, method, request, env, url) {
     const pages = (await pagesRes.json()).data || [];
 
     for (const page of pages) {
-      const pageEnc = encryptToken(page.access_token, masterKey);
+      const pageEnc = await encryptToken(page.access_token, masterKey);
       await db.prepare(`
         INSERT INTO accounts (name, account_type, fb_account_id, encrypted_token, scopes, status, created_at)
         VALUES (?, 'page', ?, ?, ?, 'ACTIVE', ?)
@@ -843,7 +855,7 @@ async function handleApiRoute(pathname, method, request, env, url) {
     const cUser = extractCUser(cookie);
     const fbAccountId = cUser || `cookie_${Date.now()}`;
     const accountName = (name && name.trim()) ? name.trim() : `Cookie (${cUser || 'Clone'})`;
-    const encCookie = encryptToken(cookie.trim(), masterKey);
+    const encCookie = await encryptToken(cookie.trim(), masterKey);
     const now = new Date().toISOString();
 
     await db.prepare(`
@@ -874,7 +886,7 @@ async function handleApiRoute(pathname, method, request, env, url) {
     if (!acc) return jsonResponse({ error: 'Không tìm thấy tài khoản' }, 404);
     if (acc.account_type !== 'cookie') return jsonResponse({ error: 'Tài khoản này không phải dạng Cookie' }, 400);
 
-    const cookie = decryptToken(acc.encrypted_token, masterKey);
+    const cookie = await decryptToken(acc.encrypted_token, masterKey);
     if (!cookie) return jsonResponse({ error: 'Không thể giải mã cookie' }, 400);
 
     try {
@@ -1567,15 +1579,15 @@ async function handleApiRoute(pathname, method, request, env, url) {
 
     const targets = (await db.prepare("SELECT * FROM monitored_targets WHERE status != 'PAUSED' ORDER BY priority DESC LIMIT 20").all())?.results || [];
     const allCookieAccounts = (await db.prepare("SELECT id, name, encrypted_token, proxy_url FROM accounts WHERE account_type = 'cookie' AND status = 'ACTIVE' ORDER BY last_sync_at ASC").all())?.results || [];
-    const accounts = allCookieAccounts.map(a => ({
+    const accounts = await Promise.all(allCookieAccounts.map(async a => ({
       id: a.id,
       name: a.name,
-      cookie: decryptToken(a.encrypted_token, masterKey),
+      cookie: await decryptToken(a.encrypted_token, masterKey),
       proxy_url: a.proxy_url
-    }));
+    })));
 
     const cookieAcc = allCookieAccounts[0] || null;
-    const cookie = cookieAcc ? decryptToken(cookieAcc.encrypted_token, masterKey) : null;
+    const cookie = cookieAcc ? await decryptToken(cookieAcc.encrypted_token, masterKey) : null;
     const proxyRow = await db.prepare("SELECT value FROM system_settings WHERE key = 'residential_proxy_url'").first();
 
     const proxiesToTest = (await db.prepare("SELECT id, raw_proxy, protocol, host, port, username, password FROM proxies WHERE status = 'PENDING' LIMIT 20").all())?.results || [];
@@ -1758,7 +1770,7 @@ async function syncSingleTarget(target, env) {
   if (target.bound_account_id) {
     const acc = await db.prepare('SELECT encrypted_token, status, account_type FROM accounts WHERE id = ?').bind(target.bound_account_id).first();
     if (acc && acc.status === 'ACTIVE' && acc.account_type !== 'cookie') {
-      token = decryptToken(acc.encrypted_token, masterKey);
+      token = await decryptToken(acc.encrypted_token, masterKey);
     }
   }
 
@@ -1770,7 +1782,7 @@ async function syncSingleTarget(target, env) {
         (p.fb_account_id && target.normalized_url.includes(p.fb_account_id)) ||
         (p.name && target.author_name && target.author_name.toLowerCase().includes(p.name.toLowerCase()))
       ) {
-        token = decryptToken(p.encrypted_token, masterKey);
+        token = await decryptToken(p.encrypted_token, masterKey);
         await db.prepare('UPDATE monitored_targets SET bound_account_id = ? WHERE id = ?').bind(p.id, target.id).run();
         break;
       }
@@ -1779,7 +1791,7 @@ async function syncSingleTarget(target, env) {
 
   if (!token) {
     const candidate = await db.prepare("SELECT encrypted_token FROM accounts WHERE status = 'ACTIVE' AND account_type IN ('page', 'user') ORDER BY last_sync_at DESC LIMIT 1").first();
-    if (candidate) token = decryptToken(candidate.encrypted_token, masterKey);
+    if (candidate) token = await decryptToken(candidate.encrypted_token, masterKey);
   }
 
   // 2. Thử nghiệm Graph API (Không bao giờ bị checkpoint vì dùng OAuth Meta chính thức)
@@ -1914,7 +1926,7 @@ async function syncViaMbasic(target, env, masterKey) {
     return;
   }
 
-  const cookie = decryptToken(cookieAcc.encrypted_token, masterKey);
+  const cookie = await decryptToken(cookieAcc.encrypted_token, masterKey);
   if (!cookie) {
     throw new Error('Không thể giải mã cookie');
   }
