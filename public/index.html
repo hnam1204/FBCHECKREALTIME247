@@ -634,7 +634,7 @@
                 <th class="p-3.5 text-center">Tăng 5m</th>
                 <th class="p-3.5 text-center">Chu kỳ / Đồng bộ</th>
                 <th class="p-3.5 text-center">Trạng thái</th>
-                <th class="p-3.5 text-right">Thao tác</th>
+                <th class="p-3.5 text-right whitespace-nowrap min-w-[240px]">Thao tác</th>
               </tr>
             </thead>
             <tbody id="targetsTableBody" class="divide-y border-surface-border">
@@ -649,9 +649,9 @@
         <div class="p-3.5 bg-surface-elevated/40 border-t border-surface-border flex items-center justify-between text-xs text-txt-sub">
           <div id="targetPaginationInfo">Hiển thị 0 bài viết</div>
           <div class="flex items-center gap-2" id="targetPaginationControls">
-            <button id="btnPrevPage" onclick="changeTargetPage(-1)" class="px-3 py-1 bg-surface hover:bg-surface-elevated rounded-lg border border-surface-border text-txt-body font-medium transition disabled:opacity-40 disabled:cursor-not-allowed">Trang trước</button>
-            <span id="targetPageCurrent" class="font-semibold text-txt-title font-mono">1</span>
-            <button id="btnNextPage" onclick="changeTargetPage(1)" class="px-3 py-1 bg-surface hover:bg-surface-elevated rounded-lg border border-surface-border text-txt-body font-medium transition disabled:opacity-40 disabled:cursor-not-allowed">Trang sau</button>
+            <button id="btnPrevPage" onclick="changeTargetPage(-1)" class="px-3.5 py-1.5 bg-surface hover:bg-surface-elevated rounded-xl border border-surface-border text-txt-body font-medium transition disabled:opacity-40 disabled:cursor-not-allowed min-h-[34px] shadow-sm active:scale-95">Trang trước</button>
+            <span id="targetPageCurrent" class="font-semibold text-txt-title font-mono px-1">1</span>
+            <button id="btnNextPage" onclick="changeTargetPage(1)" class="px-3.5 py-1.5 bg-surface hover:bg-surface-elevated rounded-xl border border-surface-border text-txt-body font-medium transition disabled:opacity-40 disabled:cursor-not-allowed min-h-[34px] shadow-sm active:scale-95">Trang sau</button>
           </div>
         </div>
       </div>
@@ -1207,9 +1207,9 @@
             </div>
           </div>
           <div class="flex items-center gap-2" id="alertPaginationControls">
-            <button id="btnAlertPrevPage" onclick="changeAlertPage(-1)" class="px-3 py-1 bg-surface hover:bg-surface-elevated rounded-lg border border-surface-border text-txt-body font-medium transition disabled:opacity-40 disabled:cursor-not-allowed">Trang trước</button>
-            <span id="alertPageCurrent" class="font-semibold text-txt-title font-mono">1 / 1</span>
-            <button id="btnAlertNextPage" onclick="changeAlertPage(1)" class="px-3 py-1 bg-surface hover:bg-surface-elevated rounded-lg border border-surface-border text-txt-body font-medium transition disabled:opacity-40 disabled:cursor-not-allowed">Trang sau</button>
+            <button id="btnAlertPrevPage" onclick="changeAlertPage(-1)" class="px-3.5 py-1.5 bg-surface hover:bg-surface-elevated rounded-xl border border-surface-border text-txt-body font-medium transition disabled:opacity-40 disabled:cursor-not-allowed min-h-[34px] shadow-sm active:scale-95">Trang trước</button>
+            <span id="alertPageCurrent" class="font-semibold text-txt-title font-mono px-1">1 / 1</span>
+            <button id="btnAlertNextPage" onclick="changeAlertPage(1)" class="px-3.5 py-1.5 bg-surface hover:bg-surface-elevated rounded-xl border border-surface-border text-txt-body font-medium transition disabled:opacity-40 disabled:cursor-not-allowed min-h-[34px] shadow-sm active:scale-95">Trang sau</button>
           </div>
         </div>
       </div>

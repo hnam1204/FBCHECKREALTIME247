@@ -711,8 +711,8 @@ function renderRecentActivityTimeline(events) {
             ${ev.severity}
           </span>
         </td>
-        <td class="p-2.5 text-right">
-          <button onclick="openDetailModal(${ev.targetId})" class="px-2 py-1 bg-surface-elevated hover:bg-brand-blue/20 text-brand-cyan text-[11px] font-semibold rounded border border-surface-border transition">
+        <td class="p-2.5 text-right whitespace-nowrap">
+          <button onclick="openDetailModal(${ev.targetId})" class="px-3.5 py-1.5 bg-surface-elevated hover:bg-brand-blue/20 text-brand-cyan text-xs font-semibold rounded-xl border border-surface-border transition whitespace-nowrap min-h-[30px] shadow-sm active:scale-95">
             Xem
           </button>
         </td>
@@ -990,23 +990,23 @@ function renderTargetsTable(targets) {
             ${accountPill}
           </div>
         </td>
-        <td class="p-3.5 text-right">
-          <div class="flex items-center justify-end gap-1.5">
-            <button onclick="openDetailModal(${t.id})" class="px-2.5 py-1 bg-surface-elevated hover:bg-brand-blue/30 text-brand-cyan rounded-lg text-xs font-semibold transition border border-surface-border">Chi tiết</button>
-            <button onclick="addPostToComparisonAndNavigate(${t.id})" title="Thêm vào đối chiếu so sánh" class="p-1.5 bg-surface-elevated hover:bg-brand-blue/30 text-amber-400 rounded-lg text-xs transition border border-surface-border active:scale-95 cursor-pointer">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+        <td class="p-3.5 text-right whitespace-nowrap">
+          <div class="flex items-center justify-end gap-2">
+            <button onclick="openDetailModal(${t.id})" class="px-4 py-2 bg-surface-elevated hover:bg-brand-blue/30 text-brand-cyan rounded-xl text-xs font-semibold transition border border-surface-border whitespace-nowrap flex items-center justify-center min-h-[34px] shadow-sm active:scale-95">Chi tiết</button>
+            <button onclick="addPostToComparisonAndNavigate(${t.id})" title="Thêm vào đối chiếu so sánh" class="w-[32px] h-[32px] min-w-[32px] min-h-[32px] flex items-center justify-center bg-surface-elevated hover:bg-brand-blue/30 text-amber-400 rounded-xl transition border border-surface-border active:scale-95 cursor-pointer shadow-sm">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
             </button>
-            <button id="btn-sync-${t.id}" onclick="syncTargetNow(${t.id})" title="Đồng bộ tức thời" class="p-1.5 bg-surface-elevated hover:bg-brand-blue/30 text-brand-cyan rounded-lg text-xs transition border border-surface-border active:scale-95 cursor-pointer">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+            <button id="btn-sync-${t.id}" onclick="syncTargetNow(${t.id})" title="Đồng bộ tức thời" class="w-[32px] h-[32px] min-w-[32px] min-h-[32px] flex items-center justify-center bg-surface-elevated hover:bg-brand-blue/30 text-brand-cyan rounded-xl transition border border-surface-border active:scale-95 cursor-pointer shadow-sm">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
             </button>
-            <button onclick="togglePause(${t.id}, '${t.status}')" title="${t.status === 'PAUSED' ? 'Tiếp tục giám sát' : 'Tạm dừng giám sát'}" class="p-1.5 bg-surface-elevated hover:bg-surface text-txt-body rounded-lg text-xs transition border border-surface-border active:scale-95 cursor-pointer">
-              ${t.status === 'PAUSED' ? '<svg class="w-3.5 h-3.5 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path></svg>' : '<svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6"></path></svg>'}
+            <button onclick="togglePause(${t.id}, '${t.status}')" title="${t.status === 'PAUSED' ? 'Tiếp tục giám sát' : 'Tạm dừng giám sát'}" class="w-[32px] h-[32px] min-w-[32px] min-h-[32px] flex items-center justify-center bg-surface-elevated hover:bg-surface text-txt-body rounded-xl transition border border-surface-border active:scale-95 cursor-pointer shadow-sm">
+              ${t.status === 'PAUSED' ? '<svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path></svg>' : '<svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6"></path></svg>'}
             </button>
-            <button onclick="promptChangeInterval(${t.id}, ${t.check_interval_sec})" title="Đổi chu kỳ quét" class="p-1.5 bg-surface-elevated hover:bg-surface text-txt-body rounded-lg text-xs transition border border-surface-border active:scale-95 cursor-pointer">
-              <svg class="w-3.5 h-3.5 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            <button onclick="promptChangeInterval(${t.id}, ${t.check_interval_sec})" title="Đổi chu kỳ quét" class="w-[32px] h-[32px] min-w-[32px] min-h-[32px] flex items-center justify-center bg-surface-elevated hover:bg-surface text-txt-body rounded-xl transition border border-surface-border active:scale-95 cursor-pointer shadow-sm">
+              <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
             </button>
-            <button onclick="deleteTarget(${t.id})" title="Xóa liên kết" class="p-1.5 bg-surface-elevated hover:bg-rose-500/20 text-rose-400 rounded-lg text-xs transition border border-surface-border active:scale-95 cursor-pointer">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            <button onclick="deleteTarget(${t.id})" title="Xóa liên kết" class="w-[32px] h-[32px] min-w-[32px] min-h-[32px] flex items-center justify-center bg-surface-elevated hover:bg-rose-500/20 text-rose-400 rounded-xl transition border border-surface-border active:scale-95 cursor-pointer shadow-sm">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
             </button>
           </div>
         </td>
@@ -2711,25 +2711,25 @@ async function fetchAlerts(page = currentAlertsPage, isDropdownOnly = false) {
 
               <!-- 9. Thao tác -->
               <td class="p-3.5 align-middle text-right whitespace-nowrap">
-                <div class="flex items-center justify-end gap-1.5">
+                <div class="flex items-center justify-end gap-2">
                   ${currentStatus === 'OPEN' ? `
-                    <button onclick="ackAlert(${a.id})" title="Tiếp nhận cảnh báo" class="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-[10px] font-semibold transition cursor-pointer">
+                    <button onclick="ackAlert(${a.id})" title="Tiếp nhận cảnh báo" class="px-3.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-semibold transition cursor-pointer min-h-[32px] shadow-sm active:scale-95">
                       Tiếp nhận
                     </button>
                   ` : currentStatus === 'ACKNOWLEDGED' ? `
-                    <button onclick="resolveAlert(${a.id})" title="Đánh dấu đã giải quyết" class="px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-[10px] font-semibold transition cursor-pointer">
+                    <button onclick="resolveAlert(${a.id})" title="Đánh dấu đã giải quyết" class="px-3.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-semibold transition cursor-pointer min-h-[32px] shadow-sm active:scale-95">
                       Giải quyết
                     </button>
                   ` : `
-                    <span class="text-[10px] text-emerald-400 font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">Đã xong</span>
+                    <span class="text-xs text-emerald-400 font-semibold px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20">Đã xong</span>
                   `}
 
-                  <button onclick="openAlertDetail(${a.id})" title="Xem bằng chứng & Audit Log" class="p-1.5 bg-surface hover:bg-surface-elevated text-brand-cyan rounded-lg border border-surface-border transition cursor-pointer">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                  <button onclick="openAlertDetail(${a.id})" title="Xem bằng chứng & Audit Log" class="w-[32px] h-[32px] min-w-[32px] min-h-[32px] flex items-center justify-center bg-surface hover:bg-surface-elevated text-brand-cyan rounded-xl border border-surface-border transition cursor-pointer shadow-sm active:scale-95">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
                   </button>
 
-                  <button onclick="deleteAlert(${a.id})" title="Xóa bản ghi" class="p-1.5 bg-surface hover:bg-rose-500/20 text-txt-sub hover:text-rose-400 rounded-lg border border-surface-border transition cursor-pointer">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                  <button onclick="deleteAlert(${a.id})" title="Xóa bản ghi" class="w-[32px] h-[32px] min-w-[32px] min-h-[32px] flex items-center justify-center bg-surface hover:bg-rose-500/20 text-txt-sub hover:text-rose-400 rounded-xl border border-surface-border transition cursor-pointer shadow-sm active:scale-95">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                   </button>
                 </div>
               </td>
