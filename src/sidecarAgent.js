@@ -9,7 +9,7 @@ const { parseMbasicHtml, parseMbasicReactionsBreakdown, parseMbasicReactors } = 
 // Cấu hình Sidecar
 const WORKER_URL = process.env.WORKER_URL || 'https://cookiefb.coongviec.workers.dev';
 const SIDECAR_SECRET = process.env.SIDECAR_SECRET || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
-const INTERVAL_SEC = parseInt(process.env.SIDECAR_INTERVAL_SEC || '10', 10);
+const INTERVAL_SEC = parseInt(process.env.SIDECAR_INTERVAL_SEC || '30', 10);
 
 console.log('===============================================================');
 console.log('[c4] LOCAL RESIDENTIAL SIDECAR AGENT - 24/7 ANTI-CHECKPOINT');
@@ -47,9 +47,18 @@ async function runSidecarTick() {
 
     console.log(`[c4] SIDECAR [${new Date().toLocaleTimeString('vi-VN')}]: Đang xử lý ${targets.length} bài viết...`);
 
-    // 2. Duyệt từng target và cào trực tiếp qua IP máy local
+    // 2. Duyệt từng target và cào trực tiếp qua IP máy local (tuân thủ nghiêm ngặt chu kỳ an toàn)
     for (const target of targets) {
       try {
+        const intervalSec = target.check_interval_sec || 300;
+        if (target.last_checked_at) {
+          const elapsedSec = (Date.now() - new Date(target.last_checked_at).getTime()) / 1000;
+          if (elapsedSec < intervalSec) {
+            // Chưa đến chu kỳ 300s, bỏ qua để chống checkpoint nick
+            continue;
+          }
+        }
+
         let fetchUrl = target.normalized_url;
         if (!fetchUrl.startsWith('http')) {
           fetchUrl = `https://www.facebook.com/${target.content_id}`;

@@ -380,7 +380,7 @@ function renderOverviewChart(fastestItems) {
 // --- 2. Targets List & Countdown Engine ---
 function initCycleCountdown() {
   if (cycleTimer) clearInterval(cycleTimer);
-  cycleCountdownSeconds = 10;
+  cycleCountdownSeconds = 30;
   cycleTimer = setInterval(() => {
     cycleCountdownSeconds--;
     const globalEl = document.getElementById('globalCountdownText');
@@ -390,8 +390,8 @@ function initCycleCountdown() {
     updateRowCountdowns();
 
     if (cycleCountdownSeconds <= 0) {
-      cycleCountdownSeconds = 10;
-      if (globalEl) globalEl.textContent = '10s';
+      cycleCountdownSeconds = 30;
+      if (globalEl) globalEl.textContent = '30s';
       if (currentTab === 'targets') fetchTargets();
       if (currentTab === 'overview') fetchOverview();
     }
