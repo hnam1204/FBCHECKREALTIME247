@@ -188,7 +188,7 @@ function initWebSocket() {
       wsRetryCount = 0;
       if (wsDot && wsText) {
         wsDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
-        wsText.textContent = '⚡ Realtime 24/7 (WebSocket Live)';
+        wsText.textContent = 'Realtime 24/7 (WebSocket Live)';
       }
       // Send immediate sync request
       try {
@@ -218,7 +218,7 @@ function initWebSocket() {
       wsRetryCount++;
       if (wsDot && wsText) {
         wsDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
-        wsText.textContent = '⚡ Realtime 24/7 (Đồng bộ Edge)';
+        wsText.textContent = 'Realtime 24/7 (Đồng bộ Edge)';
       }
       startAutoPolling();
       setTimeout(initWebSocket, 4000);
@@ -230,7 +230,7 @@ function initWebSocket() {
   } catch (err) {
     if (wsDot && wsText) {
       wsDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
-      wsText.textContent = '⚡ Realtime 24/7 (Đồng bộ Edge)';
+      wsText.textContent = 'Realtime 24/7 (Đồng bộ Edge)';
     }
     startAutoPolling();
   }
@@ -276,7 +276,10 @@ function handleLiveEvent(evt) {
       const item = document.createElement('div');
       item.className = 'flex items-center justify-between text-rose-300 py-1 bg-rose-950/20 px-2 rounded border border-rose-900/40 text-xs';
       item.innerHTML = `
-        <span>[${time}] 🚨 [${a.alertType}] ${a.message}</span>
+        <span class="flex items-center gap-1.5">
+          <svg class="w-3.5 h-3.5 text-rose-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+          <span>[${time}] [${a.alertType}] ${a.message}</span>
+        </span>
         <span class="text-rose-400 font-bold">${a.severity}</span>
       `;
       stream.prepend(item);
@@ -414,10 +417,9 @@ function updateRowCountdowns() {
     const diff = lastTime + intervalMs - now;
     const remainingSec = Math.max(0, Math.ceil(diff / 1000));
     if (remainingSec === 0) {
-      el.innerHTML = '<span class="text-emerald-400 font-semibold animate-pulse">⚡ Đến lượt</span>';
+      el.innerHTML = '<span class="text-emerald-400 font-semibold inline-flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>Đến lượt</span>';
     } else {
-      el.textContent = `⏳ còn ${remainingSec}s`;
-      el.className = 'text-[10px] text-brand-cyan font-mono';
+      el.innerHTML = `<span class="inline-flex items-center gap-1 font-mono text-[10px] text-brand-cyan"><svg class="w-2.5 h-2.5 text-brand-cyan/70 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg><span>còn ${remainingSec}s</span></span>`;
     }
   }
 }
@@ -444,7 +446,7 @@ async function refreshTargetsTable(forceSync = false) {
     }
     await fetchTargets();
     if (currentTab === 'overview') await fetchOverview();
-    if (text) text.textContent = '✓ Đã cập nhật';
+    if (text) text.textContent = 'Đã cập nhật';
   } catch (err) {
     console.error('Lỗi làm mới:', err);
     if (text) text.textContent = 'Lỗi làm mới';
@@ -509,15 +511,15 @@ function renderTargetsTable(targets) {
 
     let accountPill = '';
     if (t.bound_account_name) {
-      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-brand-blue/20 text-brand-cyan border border-brand-cyan/20 font-medium">🔑 ${t.bound_account_name}</span>`;
+      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-brand-blue/20 text-brand-cyan border border-brand-cyan/20 font-medium"><svg class="w-2.5 h-2.5 text-brand-cyan shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg><span>${t.bound_account_name}</span></span>`;
     } else if (t.latest_source_type === 'LOCAL_SIDECAR') {
-      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">🖥️ Sidecar (IP Dân cư)</span>`;
+      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium"><svg class="w-2.5 h-2.5 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg><span>Sidecar (IP Dân cư)</span></span>`;
     } else if (t.latest_source_type === 'MBASIC') {
-      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">🍪 Nick phụ Clone</span>`;
+      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium"><svg class="w-2.5 h-2.5 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg><span>Nick phụ Clone</span></span>`;
     } else if (t.latest_source_type === 'GRAPH_API') {
-      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-brand-blue/20 text-brand-cyan border border-brand-cyan/20 font-medium">⚡ Meta Graph API</span>`;
+      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-brand-blue/20 text-brand-cyan border border-brand-cyan/20 font-medium"><svg class="w-2.5 h-2.5 text-brand-cyan shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg><span>Meta Graph API</span></span>`;
     } else {
-      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-surface-elevated text-txt-sub border border-surface-border font-medium">🔄 Tự động quét</span>`;
+      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-surface-elevated text-txt-sub border border-surface-border font-medium"><svg class="w-2.5 h-2.5 text-txt-sub shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg><span>Tự động quét</span></span>`;
     }
 
     const avatarSrc = t.author_avatar || t.post_image || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=80&h=80&fit=crop';
@@ -551,7 +553,7 @@ function renderTargetsTable(targets) {
         <td class="p-3.5 text-center">
           <div class="inline-flex flex-col items-center">
             <span class="font-medium text-txt-title">${t.check_interval_sec}s</span>
-            <span id="target-countdown-${t.id}" class="text-[10px] text-brand-cyan font-mono">⏳ ...</span>
+            <span id="target-countdown-${t.id}" class="text-[10px] text-brand-cyan font-mono">...</span>
           </div>
         </td>
         <td class="p-3.5 text-center">
@@ -804,8 +806,8 @@ function renderInteractedAccounts(accounts) {
   container.innerHTML = accounts.map(a => {
     const isComment = (a.interaction_type || '').toUpperCase() === 'COMMENT';
     const typeBadge = isComment
-      ? '<span class="px-1.5 py-0.5 rounded text-[10px] bg-brand-blue/20 text-brand-cyan border border-brand-cyan/20">💬 Bình luận</span>'
-      : `<span class="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20">👍 Cảm xúc (${a.reaction_type || 'Like'})</span>`;
+      ? '<span class="px-1.5 py-0.5 rounded text-[10px] bg-brand-blue/20 text-brand-cyan border border-brand-cyan/20 inline-flex items-center gap-1"><svg class="w-3 h-3 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg><span>Bình luận</span></span>'
+      : `<span class="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 inline-flex items-center gap-1"><svg class="w-3 h-3 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5"></path></svg><span>Cảm xúc (${a.reaction_type || 'Like'})</span></span>`;
     
     const profileLink = a.profile_url
       ? `<a href="${a.profile_url}" target="_blank" class="font-semibold text-txt-title hover:text-brand-cyan transition">${a.display_name}</a>`
@@ -961,15 +963,15 @@ async function loadSettings() {
       if (s.sidecar_last_ping) {
         const diffSec = Math.floor((Date.now() - new Date(s.sidecar_last_ping).getTime()) / 1000);
         if (diffSec < 120) {
-          sidecarBadge.className = 'text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-semibold border border-emerald-500/20';
-          sidecarBadge.textContent = `🟢 Hoạt động (${diffSec}s trước)`;
+          sidecarBadge.className = 'text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-semibold border border-emerald-500/20 inline-flex items-center gap-1.5';
+          sidecarBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span><span>Hoạt động (${diffSec}s trước)</span>`;
         } else {
-          sidecarBadge.className = 'text-[10px] px-2 py-0.5 rounded bg-surface-elevated text-txt-sub border border-surface-border';
-          sidecarBadge.textContent = '⚪ Chờ kết nối';
+          sidecarBadge.className = 'text-[10px] px-2 py-0.5 rounded bg-surface-elevated text-txt-sub border border-surface-border inline-flex items-center gap-1.5';
+          sidecarBadge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span><span>Chờ kết nối</span>';
         }
       } else {
-        sidecarBadge.className = 'text-[10px] px-2 py-0.5 rounded bg-surface-elevated text-txt-sub border border-surface-border';
-        sidecarBadge.textContent = '⚪ Chưa kích hoạt';
+        sidecarBadge.className = 'text-[10px] px-2 py-0.5 rounded bg-surface-elevated text-txt-sub border border-surface-border inline-flex items-center gap-1.5';
+        sidecarBadge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span><span>Chưa kích hoạt</span>';
       }
     }
   } catch (err) {
@@ -1004,15 +1006,15 @@ async function fetchProxiesList() {
     }
 
     listEl.innerHTML = cachedProxies.map(p => {
-      let statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse">⏳ Đang test...</span>';
+      let statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30 inline-flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping"></span><span>Đang test...</span></span>';
       if (p.status === 'LIVE') {
-        statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">🟢 LIVE ${p.latency_ms}ms${p.exit_ip ? ' (' + p.exit_ip + ')' : ''}</span>`;
+        statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 inline-flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span><span>LIVE ${p.latency_ms}ms${p.exit_ip ? ' (' + p.exit_ip + ')' : ''}</span></span>`;
       } else if (p.status === 'DIE') {
-        statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">🔴 DIE</span>';
+        statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/30 inline-flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span><span>DIE</span></span>';
       }
 
       const boundBadge = p.bound_account_name
-        ? `<span class="px-1.5 py-0.5 rounded text-[10px] bg-brand-cyan/20 text-brand-cyan border border-brand-cyan/30 font-sans" title="Đã gán độc lập cho account này">🛡️ ${p.bound_account_name}</span>`
+        ? `<span class="px-1.5 py-0.5 rounded text-[10px] bg-brand-cyan/15 text-brand-cyan border border-brand-cyan/30 font-sans inline-flex items-center gap-1" title="Đã gán độc lập cho account này"><svg class="w-3 h-3 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg><span>${p.bound_account_name}</span></span>`
         : '<span class="text-txt-muted text-[10px] font-sans">Chưa gán</span>';
 
       return `
@@ -1025,8 +1027,8 @@ async function fetchProxiesList() {
           <div class="flex items-center gap-2 shrink-0">
             ${boundBadge}
             ${statusBadge}
-            <button onclick="testSingleProxy(${p.id})" class="px-2 py-0.5 bg-surface hover:bg-surface-elevated text-txt-sub hover:text-txt-body border border-surface-border rounded text-[10px] font-sans" title="Test lại proxy này">⚡</button>
-            <button onclick="deleteProxy(${p.id})" class="px-2 py-0.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded text-[10px] font-sans" title="Xóa proxy">✕</button>
+            <button onclick="testSingleProxy(${p.id})" class="p-1 bg-surface hover:bg-surface-elevated text-brand-cyan border border-surface-border rounded transition active:scale-95" title="Test lại proxy này"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg></button>
+            <button onclick="deleteProxy(${p.id})" class="p-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded transition active:scale-95" title="Xóa proxy"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
           </div>
         </div>
       `;
@@ -1211,8 +1213,9 @@ async function fetchAccountsList() {
       const proxyBadge = acc.proxy_url
         ? `<div class="mt-1 flex items-center gap-1.5 font-mono text-[11px] text-emerald-400">
              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"></span>
-             <span class="truncate max-w-[200px]" title="${acc.proxy_url}">🌐 ${acc.proxy_url.replace(/https?:\/\/([^@]+@)?/, '').replace(/socks5:\/\/([^@]+@)?/, '')} (Proxy riêng)</span>
-             <button onclick="assignProxyToAccount(${acc.id}, null)" class="text-rose-400 hover:text-rose-300 ml-0.5 text-xs font-sans" title="Gỡ bỏ Proxy riêng">✕</button>
+             <svg class="w-3 h-3 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
+             <span class="truncate max-w-[200px]" title="${acc.proxy_url}">${acc.proxy_url.replace(/https?:\/\/([^@]+@)?/, '').replace(/socks5:\/\/([^@]+@)?/, '')} (Proxy riêng)</span>
+             <button onclick="assignProxyToAccount(${acc.id}, null)" class="text-rose-400 hover:text-rose-300 ml-1 p-0.5 inline-flex items-center" title="Gỡ bỏ Proxy riêng"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
            </div>`
         : `<div class="mt-1 flex items-center gap-1.5 text-[11px] text-txt-muted">
              <span class="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"></span>

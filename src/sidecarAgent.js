@@ -197,7 +197,7 @@ async function runSidecarTick() {
         if (pushRes.ok) {
           console.log(`[c4] SIDECAR: ✓ Target #${target.id} (${target.author_name || 'Post'}) -> ${parsed.totalReactions} cảm xúc, ${parsed.totalComments} cmt, ${parsed.totalShares} shares. Đã lưu D1.`);
         } else {
-          console.error(`[c4] SIDECAR: ✖ Lỗi push snapshot #${target.id}: ${await pushRes.text()}`);
+          console.error(`[c4] SIDECAR: [ERR] Lỗi push snapshot #${target.id}: ${await pushRes.text()}`);
         }
       } catch (err) {
         console.error(`[c4] SIDECAR: Lỗi cào target #${target.id}:`, err.message);

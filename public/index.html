@@ -595,14 +595,17 @@
             <p class="text-[11px] text-txt-sub mt-0.5">Nhập hàng loạt proxy, tự động test và phân bổ 1 Account = 1 Proxy độc lập</p>
           </div>
           <div class="flex items-center gap-1.5">
-            <button type="button" onclick="toggleBatchProxyInput()" class="px-2.5 py-1 bg-brand-cyan/10 hover:bg-brand-cyan/20 text-brand-cyan border border-brand-cyan/30 text-xs font-semibold rounded">
-              + Nhập hàng loạt
+            <button type="button" onclick="toggleBatchProxyInput()" class="px-2.5 py-1 bg-brand-cyan/10 hover:bg-brand-cyan/20 text-brand-cyan border border-brand-cyan/30 text-xs font-semibold rounded flex items-center gap-1.5 transition">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+              <span>Nhập hàng loạt</span>
             </button>
-            <button type="button" onclick="testAllProxies()" id="btnTestAllProxies" class="px-2.5 py-1 bg-surface-elevated hover:bg-surface text-txt-body border border-surface-border text-xs font-semibold rounded">
-              ⚡ Test toàn bộ
+            <button type="button" onclick="testAllProxies()" id="btnTestAllProxies" class="px-2.5 py-1 bg-surface-elevated hover:bg-surface text-txt-body border border-surface-border text-xs font-semibold rounded flex items-center gap-1.5 transition">
+              <svg class="w-3.5 h-3.5 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+              <span>Test toàn bộ</span>
             </button>
-            <button type="button" onclick="autoAssignProxies()" id="btnAutoAssignProxies" class="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-semibold rounded">
-              🔀 Gán 1:1 độc lập
+            <button type="button" onclick="autoAssignProxies()" id="btnAutoAssignProxies" class="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-semibold rounded flex items-center gap-1.5 transition">
+              <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg>
+              <span>Gán 1:1 độc lập</span>
             </button>
           </div>
         </div>
@@ -613,8 +616,9 @@
           <textarea id="batchProxyInput" rows="3" placeholder="103.153.22.10:8080:username:password&#10;http://user:pass@14.225.205.100:9999&#10;socks5://user:pass@103.56.12.34:1080" class="w-full rounded px-3 py-1.5 text-xs font-mono"></textarea>
           <div class="flex justify-between items-center">
             <span class="text-[10px] text-txt-muted">Hệ thống sẽ tự động bóc tách và test ping sau khi nạp.</span>
-            <button type="button" onclick="submitBatchProxies()" class="px-4 py-1.5 bg-brand-blue hover:bg-brand-ocean text-white text-xs font-semibold rounded border border-brand-cyan/30">
-              📥 Nạp & Test Tự Động
+            <button type="button" onclick="submitBatchProxies()" class="px-4 py-1.5 bg-brand-blue hover:bg-brand-ocean text-white text-xs font-semibold rounded border border-brand-cyan/30 flex items-center gap-1.5 transition">
+              <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+              <span>Nạp & Test Tự Động</span>
             </button>
           </div>
         </div>
