@@ -260,6 +260,40 @@ async function handleApiRoute(pathname, method, request, env, url) {
     return jsonResponse({ success: true });
   }
 
+  // GET /api/comparison (So sánh tương tác đa nội dung)
+  if (pathname === '/api/comparison' && method === 'GET') {
+    const idsParam = url.searchParams.get('ids') || '';
+    const ids = idsParam.split(',').map(n => parseInt(n.trim(), 10)).filter(Boolean);
+    if (ids.length === 0) return jsonResponse({ comparison: [] });
+
+    const comparison = [];
+    for (const id of ids) {
+      const target = await db.prepare('SELECT id, author_name, normalized_url, target_type, latest_reactions, latest_comments, latest_shares, last_checked_at FROM monitored_targets WHERE id = ?').bind(id).first();
+      if (!target) continue;
+
+      const points = (await db.prepare(`
+        SELECT observed_at, total_reactions, total_comments, total_shares
+        FROM snapshots
+        WHERE target_id = ?
+        ORDER BY observed_at ASC
+        LIMIT 50
+      `).bind(id).all())?.results || [];
+
+      if (points.length === 0) {
+        points.push({
+          observed_at: target.last_checked_at || new Date().toISOString(),
+          total_reactions: target.latest_reactions || 0,
+          total_comments: target.latest_comments || 0,
+          total_shares: target.latest_shares || 0
+        });
+      }
+
+      comparison.push({ target, points });
+    }
+
+    return jsonResponse({ comparison });
+  }
+
   // GET /api/accounts
   if (pathname === '/api/accounts' && method === 'GET') {
     const accounts = (await db.prepare('SELECT id, name, account_type, fb_account_id, scopes, status, expires_at, last_sync_at, error_log FROM accounts ORDER BY id DESC').all())?.results || [];

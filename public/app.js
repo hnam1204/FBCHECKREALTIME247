@@ -982,10 +982,16 @@ async function loadComparisonCheckboxes() {
     const data = await res.json();
     const container = document.getElementById('comparisonCheckboxes');
 
-    container.innerHTML = (data.targets || []).map((t, idx) => `
-      <label class="flex items-center gap-1.5 p-2 rounded bg-dark-bg border border-dark-border cursor-pointer">
-        <input type="checkbox" name="compTarget" value="${t.id}" ${idx < 2 ? 'checked' : ''} class="rounded text-brand-500">
-        <span class="text-white">${t.author_name || 'Post #' + t.id}</span>
+    if (!data.targets || data.targets.length === 0) {
+      container.innerHTML = '<div class="text-xs text-txt-sub italic">Chưa có bài viết nào trong danh sách giám sát để so sánh.</div>';
+      return;
+    }
+
+    container.innerHTML = data.targets.map((t, idx) => `
+      <label class="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface border border-surface-border cursor-pointer hover:border-brand-cyan/40 transition">
+        <input type="checkbox" name="compTarget" value="${t.id}" ${idx < 4 ? 'checked' : ''} onchange="renderComparison()" class="rounded text-brand-cyan focus:ring-0">
+        <span class="text-txt-title font-medium">${t.author_name || 'Post #' + t.id}</span>
+        <span class="text-[11px] text-txt-sub">(${t.latest_reactions || 0} rx)</span>
       </label>
     `).join('');
 
@@ -997,34 +1003,87 @@ async function loadComparisonCheckboxes() {
 
 async function renderComparison() {
   const selected = Array.from(document.querySelectorAll('input[name="compTarget"]:checked')).map(el => el.value);
-  if (selected.length === 0) return;
+  if (selected.length === 0) {
+    if (comparisonChartInstance) {
+      comparisonChartInstance.destroy();
+      comparisonChartInstance = null;
+    }
+    return;
+  }
 
   try {
     const res = await fetch(`/api/comparison?ids=${selected.join(',')}`);
     const data = await res.json();
-    const ctx = document.getElementById('comparisonChart').getContext('2d');
+    const canvas = document.getElementById('comparisonChart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const theme = getThemeChartColors();
 
-    const colors = ['#38C6FF', '#0078A8', '#FFFFFF', '#004E6E'];
-    const datasets = data.comparison.map((item, idx) => ({
-      label: item.target.author_name || `Post #${item.target.id}`,
-      data: item.points.map(p => ({ x: new Date(p.observed_at).toLocaleTimeString('vi-VN'), y: p.total_reactions })),
-      borderColor: colors[idx % colors.length],
-      backgroundColor: colors[idx % colors.length],
-      tension: 0.3
-    }));
+    if (!data.comparison || data.comparison.length === 0) {
+      if (comparisonChartInstance) {
+        comparisonChartInstance.destroy();
+        comparisonChartInstance = null;
+      }
+      return;
+    }
 
-    if (comparisonChartInstance) comparisonChartInstance.destroy();
+    // Collect all timestamps across all selected targets
+    const allTimestamps = Array.from(new Set(
+      data.comparison.flatMap(c => (c.points || []).map(p => p.observed_at))
+    )).sort();
+
+    if (allTimestamps.length === 0) {
+      allTimestamps.push(new Date().toISOString());
+    }
+
+    const labels = allTimestamps.map(t => new Date(t).toLocaleTimeString('vi-VN'));
+    const palette = ['#38C6FF', '#0078A8', '#10B981', '#F59E0B', '#EC4899', '#8B5CF6'];
+
+    const datasets = data.comparison.map((item, idx) => {
+      const pointMap = new Map((item.points || []).map(p => [p.observed_at, p.total_reactions]));
+      let lastVal = item.target.latest_reactions || 0;
+      const dataValues = allTimestamps.map(t => {
+        if (pointMap.has(t)) {
+          lastVal = pointMap.get(t);
+        }
+        return lastVal;
+      });
+
+      const color = palette[idx % palette.length];
+      return {
+        label: item.target.author_name || `Target #${item.target.id}`,
+        data: dataValues,
+        borderColor: color,
+        backgroundColor: color,
+        tension: 0.3,
+        fill: false,
+        pointRadius: 4,
+        pointHoverRadius: 6
+      };
+    });
+
+    if (comparisonChartInstance) {
+      comparisonChartInstance.destroy();
+    }
 
     comparisonChartInstance = new Chart(ctx, {
       type: 'line',
-      data: { datasets },
+      data: { labels, datasets },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { labels: { color: '#CBD5E1', font: { size: 12 } } } },
+        plugins: {
+          legend: {
+            labels: { color: theme.textColor, font: { size: 12, weight: '500' } }
+          },
+          tooltip: {
+            mode: 'index',
+            intersect: false
+          }
+        },
         scales: {
-          x: { ticks: { color: '#64748B', font: { size: 10 } }, grid: { display: false } },
-          y: { ticks: { color: '#64748B', font: { size: 10 } }, grid: { color: 'rgba(255, 255, 255, 0.07)' } }
+          x: { ticks: { color: theme.subColor, font: { size: 10 } }, grid: { display: false } },
+          y: { ticks: { color: theme.subColor, font: { size: 10 } }, grid: { color: theme.gridColor } }
         }
       }
     });
