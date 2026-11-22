@@ -46,6 +46,12 @@ async function decryptToken(payload, masterHexKey) {
 }
 
 // --- Security & Privacy Helpers ---
+async function computeEvidenceHash(text) {
+  if (!text) return null;
+  const hashBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(text)));
+  return bytesToHex(new Uint8Array(hashBuf));
+}
+
 function maskProxyUrl(rawUrl) {
   if (!rawUrl || typeof rawUrl !== 'string') return null;
   try {
@@ -106,7 +112,7 @@ function jsonResponse(data, status = 200) {
 }
 
 // --- Main Cloudflare Worker Export ---
-export default {
+const worker_default = {
   // 1. HTTP Request Router (Edge API & Static Assets)
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -223,6 +229,16 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runScheduledMonitoringTick(env));
   }
+};
+
+export default worker_default;
+export {
+  worker_default,
+  maskProxyUrl,
+  recordAlertWithCooldown,
+  encryptToken,
+  decryptToken,
+  computeEvidenceHash
 };
 
 // --- API Router Implementation for Cloudflare D1 ---
@@ -1737,20 +1753,36 @@ async function handleApiRoute(pathname, method, request, env, url) {
 
     const rx = { like: total_reactions, love: 0, care: 0, haha: 0, wow: 0, sad: 0, angry: 0, ...reactions };
 
+    const evidencePayload = JSON.stringify({
+      source: 'LOCAL_SIDECAR',
+      target_id,
+      author: author_name,
+      content_snippet,
+      evidence_hash: await computeEvidenceHash((author_name || '') + ':' + total_reactions + ':' + total_comments),
+      metrics: {
+        reactions: total_reactions,
+        comments: total_comments,
+        shares: total_shares,
+        reactions_breakdown: reactions
+      },
+      verified_at: now
+    });
+
     const snapValues = [
       target_id, now,
       total_reactions,
       rx.like || 0, rx.love || 0, rx.care || 0, rx.haha || 0, rx.wow || 0, rx.sad || 0, rx.angry || 0,
       total_comments, total_shares,
-      deltaRx, deltaCmt, deltaSh
+      deltaRx, deltaCmt, deltaSh,
+      evidencePayload
     ];
 
     const snapRes = await db.prepare(`
       INSERT INTO snapshots (
         target_id, observed_at, source_type,
         total_reactions, like_count, love_count, care_count, haha_count, wow_count, sad_count, angry_count,
-        total_comments, total_shares, delta_reactions, delta_comments, delta_shares
-      ) VALUES (?, ?, 'LOCAL_SIDECAR', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        total_comments, total_shares, delta_reactions, delta_comments, delta_shares, raw_json
+      ) VALUES (?, ?, 'LOCAL_SIDECAR', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(...snapValues).run();
 
     await db.prepare(`
@@ -1827,6 +1859,16 @@ async function handleApiRoute(pathname, method, request, env, url) {
     const totalTargets = (await db.prepare('SELECT COUNT(*) as count FROM monitored_targets').first())?.count || 0;
     const activeTargets = (await db.prepare("SELECT COUNT(*) as count FROM monitored_targets WHERE status = 'ACTIVE'").first())?.count || 0;
     const failingTargets = (await db.prepare("SELECT COUNT(*) as count FROM monitored_targets WHERE status IN ('ERROR', 'INACCESSIBLE', 'NEEDS_AUTH', 'RATE_LIMITED')").first())?.count || 0;
+    const targetsWithErrors = (await db.prepare("SELECT COUNT(*) as count FROM monitored_targets WHERE last_error IS NOT NULL AND status != 'PAUSED'").first())?.count || 0;
+
+    // Detect zero-streak targets: active targets that have past baseline or history but are currently 0
+    const zeroStreakTargets = (await db.prepare(`
+      SELECT COUNT(*) as count FROM monitored_targets 
+      WHERE (latest_reactions = 0 AND latest_comments = 0 AND latest_shares = 0)
+        AND (baseline_reactions > 0 OR baseline_comments > 0 OR baseline_shares > 0 OR id IN (
+          SELECT DISTINCT target_id FROM snapshots WHERE total_reactions > 0 OR total_comments > 0
+        ))
+    `).first())?.count || 0;
     
     const activeAccounts = (await db.prepare("SELECT COUNT(*) as count FROM accounts WHERE status = 'ACTIVE'").first())?.count || 0;
     const checkpointAccounts = (await db.prepare("SELECT COUNT(*) as count FROM accounts WHERE status IN ('CHECKPOINT', 'NEEDS_REAUTH', 'EXPIRED')").first())?.count || 0;
@@ -1847,12 +1889,18 @@ async function handleApiRoute(pathname, method, request, env, url) {
     if (totalTargets > 0 && activeAccounts === 0) {
       overallStatus = 'CRITICAL_NO_AUTH';
       message = 'Toàn bộ tài khoản Cookie/Meta đã hết hạn hoặc checkpoint. Cần nạp tài khoản mới.';
+    } else if (checkpointAccounts > 0 && activeAccounts === 0) {
+      overallStatus = 'CRITICAL_NO_AUTH';
+      message = 'Tất cả Cookie nick phụ đã hết hạn phiên (NEEDS_REAUTH). Cần cập nhật cookie mới.';
     } else if (totalTargets > 0 && failingTargets === totalTargets) {
       overallStatus = 'UNHEALTHY';
       message = 'Tất cả bài viết đang gặp lỗi kết nối hoặc thiếu quyền truy cập.';
-    } else if (failingTargets > 0 || checkpointAccounts > 0) {
+    } else if (zeroStreakTargets > 0) {
       overallStatus = 'DEGRADED';
-      message = `Hệ thống ghi nhận ${failingTargets} bài viết lỗi hoặc ${checkpointAccounts} tài khoản cần xác thực lại.`;
+      message = `Phát hiện ${zeroStreakTargets} bài viết bị kẹt ở mức 0 tương tác (cần kiểm tra quyền truy cập hoặc Cookie).`;
+    } else if (failingTargets > 0 || checkpointAccounts > 0 || targetsWithErrors > 0) {
+      overallStatus = 'DEGRADED';
+      message = `Hệ thống ghi nhận ${targetsWithErrors || failingTargets} bài viết có cảnh báo lỗi hoặc ${checkpointAccounts} tài khoản cần xác thực lại.`;
     } else if (anomalyCount > 0) {
       overallStatus = 'DEGRADED';
       message = `Phát hiện ${anomalyCount} snapshot có delta âm trong 2h gần nhất (đang được Quality Gate cách ly).`;
@@ -1865,11 +1913,15 @@ async function handleApiRoute(pathname, method, request, env, url) {
         totalTargets,
         activeTargets,
         failingTargets,
+        targetsWithErrors,
+        zeroStreakTargets,
         activeAccounts,
         checkpointAccounts,
         anomalyCount,
         lastSnapshotAt: latestSnap?.observed_at || null,
-        lastSnapshotAgeSec
+        lastSnapshotAgeSec,
+        dataFreshness: lastSnapshotAgeSec !== null && lastSnapshotAgeSec < 300 ? 'FRESH' : 'STALE',
+        dataTrustStatus: (checkpointAccounts > 0 || zeroStreakTargets > 0 || anomalyCount > 0) ? 'DEGRADED_TRUST' : 'HIGH_CONFIDENCE'
       },
       platform: 'Cloudflare Edge 24/7',
       timestamp: new Date().toISOString()
@@ -1989,6 +2041,15 @@ async function syncViaGraphApi(target, token, env, graphVersion) {
   const deltaCmt = lastSnap ? (totalComments - lastSnap.total_comments) : 0;
   const deltaSh = lastSnap ? (totalShares - lastSnap.total_shares) : 0;
 
+  const evidencePayload = JSON.stringify({
+    source: 'GRAPH_API',
+    fb_content_id: data.id,
+    author: data.from?.name || null,
+    created_time: data.created_time || null,
+    evidence_hash: await computeEvidenceHash(data.id + ':' + totalReactions + ':' + totalComments),
+    verified_at: now
+  });
+
   const snapValues = [
     target.id, now,
     totalReactions,
@@ -2000,15 +2061,16 @@ async function syncViaGraphApi(target, token, env, graphVersion) {
     data.rx_sads?.summary?.total_count || 0,
     data.rx_angrys?.summary?.total_count || 0,
     totalComments, totalShares,
-    deltaRx, deltaCmt, deltaSh
+    deltaRx, deltaCmt, deltaSh,
+    evidencePayload
   ];
 
   await db.prepare(`
     INSERT INTO snapshots (
       target_id, observed_at, source_type,
       total_reactions, like_count, love_count, care_count, haha_count, wow_count, sad_count, angry_count,
-      total_comments, total_shares, delta_reactions, delta_comments, delta_shares
-    ) VALUES (?, ?, 'GRAPH_API', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      total_comments, total_shares, delta_reactions, delta_comments, delta_shares, raw_json
+    ) VALUES (?, ?, 'GRAPH_API', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(...snapValues).run();
 
   await db.prepare(`
@@ -2260,20 +2322,38 @@ async function syncViaMbasic(target, env, masterKey) {
   const deltaSh = prevSnap ? (parsed.totalShares - prevSnap.total_shares) : 0;
 
   // Insert Snapshot
+  const evidencePayload = JSON.stringify({
+    source: 'MBASIC',
+    url: fetchUrl,
+    canonical_url: response.url || fetchUrl,
+    http_status: response.status || 200,
+    author: parsed.authorName,
+    content_snippet: parsed.contentSnippet,
+    evidence_hash: await computeEvidenceHash(html.slice(0, 1000)),
+    metrics: {
+      reactions: parsed.totalReactions,
+      comments: parsed.totalComments,
+      shares: parsed.totalShares,
+      breakdown
+    },
+    verified_at: now
+  });
+
   const snapValues = [
     target.id, now,
     parsed.totalReactions,
     breakdown.like, breakdown.love, breakdown.care, breakdown.haha, breakdown.wow, breakdown.sad, breakdown.angry,
     parsed.totalComments, parsed.totalShares,
-    deltaRx, deltaCmt, deltaSh
+    deltaRx, deltaCmt, deltaSh,
+    evidencePayload
   ];
 
   await db.prepare(`
     INSERT INTO snapshots (
       target_id, observed_at, source_type,
       total_reactions, like_count, love_count, care_count, haha_count, wow_count, sad_count, angry_count,
-      total_comments, total_shares, delta_reactions, delta_comments, delta_shares
-    ) VALUES (?, ?, 'MBASIC', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      total_comments, total_shares, delta_reactions, delta_comments, delta_shares, raw_json
+    ) VALUES (?, ?, 'MBASIC', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(...snapValues).run();
 
   // Update Target
