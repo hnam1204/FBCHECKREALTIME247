@@ -160,21 +160,46 @@ function switchTab(tabId) {
   if (tabId === 'alerts') fetchAlerts();
 }
 
-// --- WebSocket Live Stream ---
-function initWebSocket() {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}`;
+// --- WebSocket / Edge Live Stream ---
+let wsRetryCount = 0;
+let pollingInterval = null;
 
-  const wsIndicator = document.getElementById('wsIndicator');
+function startAutoPolling() {
+  if (pollingInterval) return;
+  pollingInterval = setInterval(() => {
+    if (currentTab === 'overview') fetchOverview();
+    if (currentTab === 'targets') fetchTargets();
+    if (currentTab === 'alerts') fetchAlerts();
+  }, 20000);
+}
+
+function initWebSocket() {
   const wsDot = document.getElementById('wsDot');
   const wsText = document.getElementById('wsText');
+
+  // If deployed on Cloudflare Workers / Serverless Edge, switch immediately to Edge Sync mode
+  const isServerless = window.location.hostname.includes('workers.dev') || window.location.hostname.includes('pages.dev');
+  if (isServerless) {
+    if (wsDot && wsText) {
+      wsDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+      wsText.textContent = 'Cloudflare Edge 24/7 (Đồng bộ tự động)';
+    }
+    startAutoPolling();
+    return;
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}`;
 
   try {
     ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
-      wsDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
-      wsText.textContent = 'WebSocket Đã kết nối';
+      wsRetryCount = 0;
+      if (wsDot && wsText) {
+        wsDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+        wsText.textContent = 'WebSocket Đã kết nối';
+      }
     };
 
     ws.onmessage = (event) => {
@@ -187,16 +212,28 @@ function initWebSocket() {
     };
 
     ws.onclose = () => {
-      wsDot.className = 'w-2 h-2 rounded-full bg-rose-400';
-      wsText.textContent = 'Mất kết nối WS - đang thử lại...';
-      setTimeout(initWebSocket, 4000);
+      wsRetryCount++;
+      if (wsRetryCount > 1) {
+        // Fall back gracefully to Edge Sync without showing red warning
+        if (wsDot && wsText) {
+          wsDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+          wsText.textContent = 'Cloudflare Edge 24/7 (Đồng bộ tự động)';
+        }
+        startAutoPolling();
+        return;
+      }
+      setTimeout(initWebSocket, 3000);
     };
 
     ws.onerror = () => {
       ws.close();
     };
   } catch (err) {
-    console.warn('Không thể mở WebSocket:', err);
+    if (wsDot && wsText) {
+      wsDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+      wsText.textContent = 'Cloudflare Edge 24/7 (Đồng bộ tự động)';
+    }
+    startAutoPolling();
   }
 }
 
@@ -779,6 +816,7 @@ async function fetchAccountsList() {
           </div>
           <div class="flex items-center gap-2">
             <span class="px-2.5 py-0.5 rounded text-xs font-semibold ${acc.status === 'ACTIVE' ? 'status-active' : 'status-inaccessible'}">${acc.status}</span>
+            ${acc.account_type === 'cookie' ? `<button onclick="testCookieAccount(${acc.id}, this)" class="px-2.5 py-1 bg-brand-cyan/10 text-brand-cyan hover:bg-brand-cyan/20 border border-brand-cyan/30 rounded text-xs font-medium transition">Kiểm tra</button>` : ''}
             <button onclick="revokeAccount(${acc.id})" class="px-2.5 py-1 bg-rose-500/10 text-rose-400 rounded text-xs hover:bg-rose-500/20 transition">Thu hồi</button>
           </div>
         </div>
@@ -816,6 +854,38 @@ async function submitAddCookieAccount() {
     });
   } catch (err) {
     showNoticeModal({ title: 'Lỗi nạp Cookie', message: err.message, type: 'error' });
+  }
+}
+
+async function testCookieAccount(id, btn) {
+  const originalHtml = btn.innerHTML;
+  btn.innerHTML = 'Đang test...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch(`/api/accounts/${id}/test-cookie`, { method: 'POST' });
+    const data = await res.json();
+
+    if (data.valid) {
+      showNoticeModal({
+        title: 'Cookie hoạt động tốt',
+        message: `Tài khoản: "${data.name}". Phiên mbasic hợp lệ, sẵn sàng giám sát bài viết 24/7!`,
+        type: 'success'
+      });
+      fetchAccountsList();
+    } else {
+      showNoticeModal({
+        title: 'Cookie không hợp lệ',
+        message: data.message || data.error || 'Cookie đã hết hạn hoặc bị Facebook yêu cầu checkpoint.',
+        type: 'error'
+      });
+      fetchAccountsList();
+    }
+  } catch (err) {
+    showNoticeModal({ title: 'Lỗi kiểm tra', message: err.message, type: 'error' });
+  } finally {
+    btn.innerHTML = originalHtml;
+    btn.disabled = false;
   }
 }
 

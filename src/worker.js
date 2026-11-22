@@ -336,6 +336,61 @@ async function handleApiRoute(pathname, method, request, env, url) {
     });
   }
 
+  // POST /api/accounts/:id/test-cookie (Kiểm tra sống/chết của Cookie)
+  const testCookieMatch = pathname.match(/^\/api\/accounts\/(\d+)\/test-cookie$/);
+  if (testCookieMatch && method === 'POST') {
+    const id = parseInt(testCookieMatch[1], 10);
+    const acc = await db.prepare('SELECT * FROM accounts WHERE id = ?').bind(id).first();
+    if (!acc) return jsonResponse({ error: 'Không tìm thấy tài khoản' }, 404);
+    if (acc.account_type !== 'cookie') return jsonResponse({ error: 'Tài khoản này không phải dạng Cookie' }, 400);
+
+    const cookie = decryptToken(acc.encrypted_token, masterKey);
+    if (!cookie) return jsonResponse({ error: 'Không thể giải mã cookie' }, 400);
+
+    try {
+      const res = await fetch('https://mbasic.facebook.com/me', {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Cookie': cookie,
+          'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate'
+        }
+      });
+      const html = await res.text();
+
+      if (isCheckpointOrLogin(res.url, html)) {
+        await db.prepare("UPDATE accounts SET status = 'NEEDS_REAUTH', error_log = 'Cookie bị checkpoint hoặc hết hạn' WHERE id = ?").bind(id).run();
+        return jsonResponse({
+          valid: false,
+          status: 'NEEDS_REAUTH',
+          message: 'Cookie đã hết hạn hoặc bị Facebook yêu cầu xác minh checkpoint.'
+        });
+      }
+
+      let liveName = acc.name;
+      const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
+      if (titleMatch) {
+        const titleText = titleMatch[1].replace(/\s*\|\s*Facebook$/i, '').trim();
+        if (titleText && !titleText.includes('Facebook') && !titleText.includes('Đăng nhập') && !titleText.includes('Log in')) {
+          liveName = titleText;
+        }
+      }
+
+      const now = new Date().toISOString();
+      await db.prepare("UPDATE accounts SET status = 'ACTIVE', name = ?, error_log = NULL, last_sync_at = ? WHERE id = ?").bind(liveName, now, id).run();
+
+      return jsonResponse({
+        valid: true,
+        status: 'ACTIVE',
+        name: liveName,
+        message: 'Cookie hoạt động hoàn hảo! Đã kết nối mbasic thành công.'
+      });
+    } catch (e) {
+      return jsonResponse({ valid: false, error: e.message }, 500);
+    }
+  }
+
   // DELETE /api/accounts/:id
   const accDeleteMatch = pathname.match(/^\/api\/accounts\/(\d+)$/);
   if (accDeleteMatch && method === 'DELETE') {
