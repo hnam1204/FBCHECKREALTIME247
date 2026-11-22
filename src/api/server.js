@@ -9,6 +9,7 @@ const alertEngine = require('../analytics/alertEngine');
 const monitorScheduler = require('../scheduler/monitorScheduler');
 const config = require('../config');
 const { computeComparisonAnalytics } = require('../analytics/comparisonEngine');
+const { parseBatchProxies, parseProxyString, testProxyConnectivity } = require('../collector/proxyHelper');
 
 function createServer() {
   const app = express();
@@ -559,6 +560,154 @@ function createServer() {
     const id = parseInt(req.params.id, 10);
     accountManager.revokeAccount(id);
     res.json({ success: true });
+  });
+
+  // --- Proxies Pool Management ---
+  app.get('/api/proxies', (req, res) => {
+    try {
+      const proxies = db.prepare(`
+        SELECT p.*, a.name as bound_account_name
+        FROM proxies p
+        LEFT JOIN accounts a ON a.id = p.bound_account_id
+        ORDER BY p.id DESC
+      `).all() || [];
+      res.json({ proxies });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/proxies/import', (req, res) => {
+    try {
+      const { proxies = '' } = req.body;
+      const parsedList = parseBatchProxies(proxies);
+      if (parsedList.length === 0) {
+        return res.status(400).json({ error: 'Không tìm thấy proxy hợp lệ. Hỗ trợ dạng ip:port:user:pass hoặc http://user:pass@ip:port' });
+      }
+      const now = new Date().toISOString();
+      let imported = 0;
+      for (const p of parsedList) {
+        try {
+          const insertStmt = db.prepare(`
+            INSERT INTO proxies (raw_proxy, protocol, host, port, username, password, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?)
+            ON CONFLICT(raw_proxy) DO NOTHING
+          `);
+          const info = insertStmt.run(p.raw_proxy, p.protocol, p.host, p.port, p.username, p.password, now);
+          if (info.changes > 0) imported++;
+        } catch (_) {}
+      }
+
+      // Auto test in background
+      setTimeout(async () => {
+        try {
+          const pending = db.prepare("SELECT * FROM proxies WHERE status = 'PENDING' LIMIT 20").all() || [];
+          for (const item of pending) {
+            const auth = item.username && item.password ? `${encodeURIComponent(item.username)}:${encodeURIComponent(item.password)}@` : '';
+            const pUrl = `${item.protocol || 'http'}://${auth}${item.host}:${item.port}`;
+            const tRes = await testProxyConnectivity(pUrl, 6000);
+            db.prepare(`
+              UPDATE proxies 
+              SET status = ?, latency_ms = ?, exit_ip = ?, last_tested_at = ?
+              WHERE id = ?
+            `).run(tRes.live ? 'LIVE' : 'DIE', tRes.latency_ms || 0, tRes.exit_ip || null, new Date().toISOString(), item.id);
+          }
+        } catch (_) {}
+      }, 500);
+
+      res.json({
+        success: true,
+        imported,
+        total: parsedList.length,
+        message: `Đã nạp thành công ${imported} proxy mới vào hàng đợi test tự động.`
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/proxies/request-test', async (req, res) => {
+    try {
+      const { proxy_id } = req.body || {};
+      if (proxy_id) {
+        db.prepare("UPDATE proxies SET status = 'PENDING' WHERE id = ?").run(proxy_id);
+      } else {
+        db.prepare("UPDATE proxies SET status = 'PENDING'").run();
+      }
+
+      setTimeout(async () => {
+        try {
+          const pending = db.prepare("SELECT * FROM proxies WHERE status = 'PENDING' LIMIT 20").all() || [];
+          for (const item of pending) {
+            const auth = item.username && item.password ? `${encodeURIComponent(item.username)}:${encodeURIComponent(item.password)}@` : '';
+            const pUrl = `${item.protocol || 'http'}://${auth}${item.host}:${item.port}`;
+            const tRes = await testProxyConnectivity(pUrl, 6000);
+            db.prepare(`
+              UPDATE proxies 
+              SET status = ?, latency_ms = ?, exit_ip = ?, last_tested_at = ?
+              WHERE id = ?
+            `).run(tRes.live ? 'LIVE' : 'DIE', tRes.latency_ms || 0, tRes.exit_ip || null, new Date().toISOString(), item.id);
+          }
+        } catch (_) {}
+      }, 300);
+
+      res.json({ success: true, message: 'Đã đưa proxy vào hàng đợi test kết nối' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/proxies/auto-assign', (req, res) => {
+    try {
+      const accounts = db.prepare("SELECT id, name FROM accounts WHERE account_type = 'cookie' AND status = 'ACTIVE' ORDER BY id ASC").all() || [];
+      let liveProxies = db.prepare("SELECT id, raw_proxy, protocol, host, port, username, password FROM proxies WHERE status = 'LIVE' ORDER BY latency_ms ASC, id ASC").all() || [];
+      if (liveProxies.length === 0) {
+        liveProxies = db.prepare("SELECT id, raw_proxy, protocol, host, port, username, password FROM proxies ORDER BY id ASC").all() || [];
+      }
+      if (liveProxies.length === 0) {
+        return res.status(400).json({ error: 'Chưa có proxy nào trong danh sách. Hãy nạp proxy trước.' });
+      }
+
+      db.prepare('UPDATE proxies SET bound_account_id = NULL').run();
+      db.prepare("UPDATE accounts SET proxy_url = NULL WHERE account_type = 'cookie'").run();
+
+      const mappings = [];
+      for (let i = 0; i < accounts.length; i++) {
+        const acc = accounts[i];
+        if (i < liveProxies.length) {
+          const p = liveProxies[i];
+          const auth = p.username && p.password ? `${encodeURIComponent(p.username)}:${encodeURIComponent(p.password)}@` : '';
+          const proxyUrl = `${p.protocol}://${auth}${p.host}:${p.port}`;
+          db.prepare('UPDATE accounts SET proxy_url = ? WHERE id = ?').run(proxyUrl, acc.id);
+          db.prepare('UPDATE proxies SET bound_account_id = ? WHERE id = ?').run(acc.id, p.id);
+          mappings.push({ account_id: acc.id, account_name: acc.name, proxy_id: p.id, proxy_url: proxyUrl });
+        }
+      }
+
+      res.json({
+        success: true,
+        assigned_count: mappings.length,
+        total_accounts: accounts.length,
+        mappings,
+        message: `Đã phân bổ 1:1 độc lập ${mappings.length} proxy cho ${accounts.length} tài khoản.`
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/proxies/:id', (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const p = db.prepare('SELECT * FROM proxies WHERE id = ?').get(id);
+      if (p && p.bound_account_id) {
+        db.prepare('UPDATE accounts SET proxy_url = NULL WHERE id = ?').run(p.bound_account_id);
+      }
+      db.prepare('DELETE FROM proxies WHERE id = ?').run(id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // 10. Notifications & Alert Center Endpoints (Prompt 03)

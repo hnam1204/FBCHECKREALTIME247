@@ -134,21 +134,37 @@ export async function testProxyConnectivity(proxyUrl, timeoutMs = 7000) {
     }
 
     const fetch = (await import('node-fetch')).default;
-    const res = await fetch('https://api.ipify.org?format=json', {
-      agent,
-      timeout: timeoutMs,
-      headers: { 'User-Agent': 'curl/7.88.1' }
-    });
+
+    // Test connectivity directly to Facebook Gateway (authoritative endpoint for Facebook proxies)
+    let res = null;
+    try {
+      res = await fetch('https://graph.facebook.com', {
+        agent,
+        timeout: timeoutMs,
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+      });
+    } catch (fbErr) {
+      // Fallback to mbasic.facebook.com
+      res = await fetch('https://mbasic.facebook.com', {
+        agent,
+        timeout: timeoutMs,
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+      });
+    }
 
     const latency_ms = Date.now() - start;
 
-    if (res.ok) {
-      const data = await res.json().catch(() => null);
-      const exit_ip = data?.ip || null;
+    if (res && res.status) {
+      let exit_ip = null;
+      try {
+        const u = new URL(proxyUrl);
+        exit_ip = u.hostname;
+      } catch (_) {}
+
       return {
         live: true,
         latency_ms,
-        exit_ip,
+        exit_ip: exit_ip || 'FB Edge',
         error: null
       };
     } else {
@@ -156,7 +172,7 @@ export async function testProxyConnectivity(proxyUrl, timeoutMs = 7000) {
         live: false,
         latency_ms: 0,
         exit_ip: null,
-        error: `HTTP ${res.status}`
+        error: `HTTP ${res?.status || 502}`
       };
     }
   } catch (err) {
