@@ -790,34 +790,92 @@ async function refreshTargetsTable(forceSync = false) {
   }
 }
 
+let currentTargetsPage = 1;
+let targetsTotalPages = 1;
+let currentDetailRange = '24H';
+let currentDetailAccounts = [];
+
 function debounceFetchTargets() {
   clearTimeout(searchTimeout);
-  searchTimeout = setTimeout(fetchTargets, 300);
+  searchTimeout = setTimeout(() => fetchTargets(1), 300);
 }
 
-async function fetchTargets() {
+async function fetchTargets(page = currentTargetsPage) {
+  currentTargetsPage = page;
   const searchInput = document.getElementById('targetSearchInput');
   const typeFilter = document.getElementById('targetTypeFilter');
   const statusFilter = document.getElementById('targetStatusFilter');
+  const sourceFilter = document.getElementById('targetSourceFilter');
+  const sortFilter = document.getElementById('targetSortFilter');
 
-  const search = searchInput ? searchInput.value : '';
+  const search = searchInput ? searchInput.value.trim() : '';
   const type = typeFilter ? typeFilter.value : '';
   const status = statusFilter ? statusFilter.value : '';
+  const source = sourceFilter ? sourceFilter.value : '';
+  const sort = sortFilter ? sortFilter.value : 'newest';
 
   const params = new URLSearchParams();
   if (search) params.append('search', search);
   if (type) params.append('type', type);
   if (status) params.append('status', status);
+  if (source) params.append('source', source);
+  if (sort) params.append('sort', sort);
+  params.append('page', page);
+  params.append('limit', '15');
 
   try {
     const res = await fetch(`/api/targets?${params.toString()}`);
     const data = await res.json();
     cachedTargets = data.targets || [];
+    targetsTotalPages = data.totalPages || 1;
+
+    // 5 Monitoring KPI Counters
+    if (data.kpi) {
+      const elTotal = document.getElementById('monKpiTotal');
+      const elActive = document.getElementById('monKpiActive');
+      const elPaused = document.getElementById('monKpiPaused');
+      const elError = document.getElementById('monKpiError');
+      const elAlerts = document.getElementById('monKpiAlerts');
+      if (elTotal) elTotal.textContent = (data.kpi.totalTargets || 0).toLocaleString();
+      if (elActive) elActive.textContent = (data.kpi.activeTargets || 0).toLocaleString();
+      if (elPaused) elPaused.textContent = (data.kpi.pausedTargets || 0).toLocaleString();
+      if (elError) elError.textContent = (data.kpi.errorTargets || 0).toLocaleString();
+      if (elAlerts) elAlerts.textContent = (data.kpi.unresolvedAlerts || 0).toLocaleString();
+    }
+
     renderTargetsTable(cachedTargets);
+
+    // Pagination controls
+    const infoEl = document.getElementById('targetPaginationInfo');
+    const pageCurrentEl = document.getElementById('targetPageCurrent');
+    const btnPrev = document.getElementById('btnPrevPage');
+    const btnNext = document.getElementById('btnNextPage');
+    const totalCount = data.totalCount !== undefined ? data.totalCount : cachedTargets.length;
+
+    if (infoEl) {
+      if (totalCount === 0) {
+        infoEl.textContent = 'Hiển thị 0 bài viết';
+      } else {
+        const start = (page - 1) * 15 + 1;
+        const end = Math.min(page * 15, totalCount);
+        infoEl.textContent = `Hiển thị ${start}-${end} trên tổng số ${totalCount} bài viết`;
+      }
+    }
+    if (pageCurrentEl) pageCurrentEl.textContent = `${page} / ${targetsTotalPages}`;
+    if (btnPrev) btnPrev.disabled = (page <= 1);
+    if (btnNext) btnNext.disabled = (page >= targetsTotalPages);
+
     const countEl = document.getElementById('tabTargetsCount');
-    if (countEl) countEl.textContent = cachedTargets.length;
+    if (countEl) countEl.textContent = totalCount;
   } catch (err) {
     console.error('Lỗi tải targets:', err);
+  }
+}
+
+function changeTargetPage(delta) {
+  const newPage = currentTargetsPage + delta;
+  if (newPage >= 1 && newPage <= targetsTotalPages) {
+    fetchTargets(newPage);
   }
 }
 
@@ -826,26 +884,42 @@ function renderTargetsTable(targets) {
   const tbody = document.getElementById('targetsTableBody');
   if (!tbody) return;
   if (targets.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="9" class="p-8 text-center text-txt-sub">Chưa có liên kết Facebook nào được giám sát. Nhấn "Thêm liên kết giám sát" ở trên.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="p-8 text-center text-txt-sub">Chưa có liên kết Facebook nào được giám sát. Nhấn "Thêm bài viết giám sát" ở trên.</td></tr>`;
     return;
   }
 
   tbody.innerHTML = targets.map(t => {
     let statusClass = 'status-active';
     let statusText = 'Hoạt động 24/7';
-    if (t.status === 'PAUSED') { statusClass = 'status-paused'; statusText = 'Tạm dừng'; }
-    else if (t.status === 'DATA_LIMITED') { statusClass = 'status-limited'; statusText = 'Giới hạn'; }
-    else if (t.status === 'INACCESSIBLE') { statusClass = 'status-inaccessible'; statusText = 'Lỗi truy cập'; }
+    if (t.status === 'PAUSED') { 
+      statusClass = 'status-paused'; 
+      statusText = 'Tạm dừng'; 
+    } else if (t.status === 'PENDING') { 
+      statusClass = 'status-limited'; 
+      statusText = 'Chờ xử lý'; 
+    } else if (t.status === 'SYNCING') { 
+      statusClass = 'status-active'; 
+      statusText = 'Đang đồng bộ'; 
+    } else if (t.status === 'RATE_LIMITED' || t.status === 'DATA_LIMITED') { 
+      statusClass = 'status-limited'; 
+      statusText = 'Bị giới hạn'; 
+    } else if (t.status === 'PERMISSION_REQUIRED') { 
+      statusClass = 'status-inaccessible'; 
+      statusText = 'Cần quyền'; 
+    } else if (t.status === 'INACCESSIBLE' || t.status === 'ERROR') { 
+      statusClass = 'status-inaccessible'; 
+      statusText = 'Lỗi truy cập'; 
+    }
 
     let accountPill = '';
     if (t.bound_account_name) {
-      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-brand-blue/20 text-brand-cyan border border-brand-cyan/20 font-medium"><svg class="w-2.5 h-2.5 text-brand-cyan shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg><span>${t.bound_account_name}</span></span>`;
+      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-brand-blue/20 text-brand-cyan border border-brand-cyan/20 font-medium" title="Phiên tài khoản quản trị"><svg class="w-2.5 h-2.5 text-brand-cyan shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg><span>${t.bound_account_name}</span></span>`;
     } else if (t.latest_source_type === 'LOCAL_SIDECAR') {
-      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium"><svg class="w-2.5 h-2.5 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg><span>Sidecar (IP Dân cư)</span></span>`;
+      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium" title="Định tuyến Local Sidecar"><svg class="w-2.5 h-2.5 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg><span>Sidecar (IP Dân cư)</span></span>`;
     } else if (t.latest_source_type === 'MBASIC') {
-      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium"><svg class="w-2.5 h-2.5 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg><span>Nick phụ Clone</span></span>`;
+      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium" title="Phiên mbasic Cookie"><svg class="w-2.5 h-2.5 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg><span>Clone Cookie</span></span>`;
     } else if (t.latest_source_type === 'GRAPH_API') {
-      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-brand-blue/20 text-brand-cyan border border-brand-cyan/20 font-medium"><svg class="w-2.5 h-2.5 text-brand-cyan shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg><span>Meta Graph API</span></span>`;
+      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-brand-blue/20 text-brand-cyan border border-brand-cyan/20 font-medium" title="Chính thức Meta Graph API"><svg class="w-2.5 h-2.5 text-brand-cyan shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg><span>Meta Graph API</span></span>`;
     } else {
       accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-surface-elevated text-txt-sub border border-surface-border font-medium"><svg class="w-2.5 h-2.5 text-txt-sub shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg><span>Tự động quét</span></span>`;
     }
@@ -854,6 +928,16 @@ function renderTargetsTable(targets) {
     const postMediaThumb = (t.post_image && t.post_image !== t.author_avatar)
       ? `<img src="${t.post_image}" referrerpolicy="no-referrer" alt="media" title="Ảnh bài viết Facebook" class="w-8 h-8 rounded-lg object-cover bg-gray-800 border border-surface-border shrink-0 hover:scale-105 transition shadow-sm" onerror="this.style.display='none'">`
       : '';
+
+    // Calculate growth delta
+    const delta5m = t.latest_growth_5m !== null && t.latest_growth_5m !== undefined 
+      ? t.latest_growth_5m 
+      : ((t.latest_reactions || 0) - (t.baseline_reactions || 0));
+    const delta5mBadge = delta5m > 0
+      ? `<span class="text-emerald-400 font-semibold inline-flex items-center gap-0.5"><svg class="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path></svg>+${delta5m.toLocaleString()}</span>`
+      : (delta5m < 0 
+          ? `<span class="text-rose-400 font-semibold inline-flex items-center gap-0.5"><svg class="w-3 h-3 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg>${delta5m.toLocaleString()}</span>`
+          : `<span class="text-txt-muted font-medium">+0</span>`);
 
     return `
       <tr class="hover:bg-surface-elevated/50 transition">
@@ -871,16 +955,19 @@ function renderTargetsTable(targets) {
         </td>
         <td class="p-3.5">
           <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-surface-elevated text-txt-sub border border-surface-border">
-            ${t.target_type}
+            ${t.target_type || 'POST'}
           </span>
         </td>
         <td class="p-3.5 text-right font-semibold text-brand-cyan">${(t.latest_reactions || 0).toLocaleString()}</td>
         <td class="p-3.5 text-right font-semibold text-txt-title">${(t.latest_comments || 0).toLocaleString()}</td>
-        <td class="p-3.5 text-right font-semibold text-brand-cyan">${(t.latest_shares || 0).toLocaleString()}</td>
-        <td class="p-3.5 text-center text-brand-cyan font-semibold">+${(t.latest_reactions || 0) - (t.baseline_reactions || 0)}</td>
+        <td class="p-3.5 text-right font-semibold text-emerald-400">${(t.latest_shares || 0).toLocaleString()}</td>
+        <td class="p-3.5 text-center">${delta5mBadge}</td>
         <td class="p-3.5 text-center">
           <div class="inline-flex flex-col items-center">
-            <span class="font-medium text-txt-title">${t.check_interval_sec}s</span>
+            <button onclick="promptChangeInterval(${t.id}, ${t.check_interval_sec})" title="Nhấp để đổi chu kỳ quét" class="font-medium text-txt-title hover:text-brand-cyan flex items-center gap-1 group transition cursor-pointer">
+              <span>${t.check_interval_sec}s</span>
+              <svg class="w-3 h-3 text-txt-muted group-hover:text-brand-cyan transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+            </button>
             <span id="target-countdown-${t.id}" class="text-[10px] text-brand-cyan font-mono">...</span>
           </div>
         </td>
@@ -891,15 +978,18 @@ function renderTargetsTable(targets) {
           </div>
         </td>
         <td class="p-3.5 text-right">
-          <div class="flex items-center justify-end gap-2">
-            <button onclick="openDetailModal(${t.id})" class="px-2.5 py-1 bg-surface-elevated hover:bg-brand-blue/30 text-brand-cyan rounded text-xs transition border border-surface-border">Chi tiết</button>
-            <button id="btn-sync-${t.id}" onclick="syncTargetNow(${t.id})" title="Đồng bộ ngay" class="p-1.5 bg-surface-elevated hover:bg-brand-blue/30 text-brand-cyan rounded text-xs transition border border-surface-border active:scale-95 cursor-pointer">
+          <div class="flex items-center justify-end gap-1.5">
+            <button onclick="openDetailModal(${t.id})" class="px-2.5 py-1 bg-surface-elevated hover:bg-brand-blue/30 text-brand-cyan rounded-lg text-xs font-semibold transition border border-surface-border">Chi tiết</button>
+            <button id="btn-sync-${t.id}" onclick="syncTargetNow(${t.id})" title="Đồng bộ tức thời" class="p-1.5 bg-surface-elevated hover:bg-brand-blue/30 text-brand-cyan rounded-lg text-xs transition border border-surface-border active:scale-95 cursor-pointer">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
             </button>
-            <button onclick="togglePause(${t.id}, '${t.status}')" title="${t.status === 'PAUSED' ? 'Tiếp tục' : 'Tạm dừng'}" class="p-1.5 bg-surface-elevated hover:bg-surface text-txt-body rounded text-xs transition border border-surface-border active:scale-95 cursor-pointer">
+            <button onclick="togglePause(${t.id}, '${t.status}')" title="${t.status === 'PAUSED' ? 'Tiếp tục giám sát' : 'Tạm dừng giám sát'}" class="p-1.5 bg-surface-elevated hover:bg-surface text-txt-body rounded-lg text-xs transition border border-surface-border active:scale-95 cursor-pointer">
               ${t.status === 'PAUSED' ? '<svg class="w-3.5 h-3.5 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path></svg>' : '<svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6"></path></svg>'}
             </button>
-            <button onclick="deleteTarget(${t.id})" title="Xóa" class="p-1.5 bg-surface-elevated hover:bg-rose-500/20 text-rose-400 rounded text-xs transition border border-surface-border active:scale-95 cursor-pointer">
+            <button onclick="promptChangeInterval(${t.id}, ${t.check_interval_sec})" title="Đổi chu kỳ quét" class="p-1.5 bg-surface-elevated hover:bg-surface text-txt-body rounded-lg text-xs transition border border-surface-border active:scale-95 cursor-pointer">
+              <svg class="w-3.5 h-3.5 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            </button>
+            <button onclick="deleteTarget(${t.id})" title="Xóa liên kết" class="p-1.5 bg-surface-elevated hover:bg-rose-500/20 text-rose-400 rounded-lg text-xs transition border border-surface-border active:scale-95 cursor-pointer">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
             </button>
           </div>
@@ -911,7 +1001,62 @@ function renderTargetsTable(targets) {
   updateRowCountdowns();
 }
 
+// --- Quick Interval Modification ---
+function promptChangeInterval(id, currInterval) {
+  const input = prompt(`Cấu hình chu kỳ quét cho bài viết #${id} (giây):\nCác mốc khuyên dùng: 15s (nhạy cảm), 30s, 60s, 300s (khuyến nghị chống checkpoint)`, currInterval || 300);
+  if (!input) return;
+  const sec = parseInt(input.trim(), 10);
+  if (isNaN(sec) || sec < 5 || sec > 86400) {
+    return alert('Chu kỳ quét không hợp lệ (nhập từ 5 đến 86400 giây)');
+  }
+  updateTargetInterval(id, sec);
+}
+
+async function updateTargetInterval(id, checkIntervalSec) {
+  try {
+    const res = await fetch(`/api/targets/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ check_interval_sec: checkIntervalSec })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    await fetchTargets(currentTargetsPage);
+    showNoticeModal({
+      title: 'Đã đổi chu kỳ giám sát',
+      message: `Chu kỳ bài viết #${id} đã đổi sang ${checkIntervalSec} giây.`,
+      type: 'success'
+    });
+  } catch (err) {
+    showNoticeModal({ title: 'Lỗi cập nhật', message: err.message, type: 'error' });
+  }
+}
+
 // --- Target Quick Actions ---
+async function syncAllTargetsNow() {
+  const btn = document.getElementById('btnSyncAllTargets');
+  const icon = document.getElementById('syncAllIcon');
+  if (icon) icon.classList.add('animate-spin');
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/targets/sync-all', { method: 'POST' });
+    const data = await res.json();
+    await fetchTargets(currentTargetsPage);
+    if (currentTab === 'overview') await fetchOverview();
+    showNoticeModal({
+      title: 'Đồng bộ toàn bộ hoàn tất',
+      message: `Đã kích hoạt quét đồng bộ tức thời cho ${data.count || 'tất cả'} đối tượng giám sát đang hoạt động.`,
+      type: 'success'
+    });
+  } catch (e) {
+    showNoticeModal({ title: 'Lỗi đồng bộ', message: e.message, type: 'error' });
+  } finally {
+    if (icon) icon.classList.remove('animate-spin');
+    if (btn) btn.disabled = false;
+  }
+}
+
 async function syncTargetNow(id) {
   const btn = document.getElementById(`btn-sync-${id}`);
   const icon = btn ? btn.querySelector('svg') : null;
@@ -922,7 +1067,7 @@ async function syncTargetNow(id) {
     const res = await fetch(`/api/targets/${id}/sync-now`, { method: 'POST' });
     const data = await res.json();
     if (data.error) throw new Error(data.error);
-    await fetchTargets();
+    await fetchTargets(currentTargetsPage);
     if (currentTab === 'overview') await fetchOverview();
   } catch (e) {
     showNoticeModal({ title: 'Lỗi đồng bộ', message: e.message, type: 'error' });
@@ -940,7 +1085,7 @@ async function togglePause(id, currentStatus) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: newStatus })
     });
-    fetchTargets();
+    fetchTargets(currentTargetsPage);
     fetchOverview();
   } catch (e) {
     alert('Lỗi cập nhật trạng thái: ' + e.message);
@@ -956,7 +1101,7 @@ async function deleteTarget(id) {
     onConfirm: async () => {
       try {
         await fetch(`/api/targets/${id}`, { method: 'DELETE' });
-        fetchTargets();
+        fetchTargets(currentTargetsPage);
         fetchOverview();
         showNoticeModal({ title: 'Đã xóa đối tượng', message: 'Bài viết đã được gỡ bỏ an toàn.', type: 'success' });
       } catch (e) {
@@ -970,7 +1115,7 @@ async function deleteTarget(id) {
 async function openDetailModal(id) {
   currentDetailTargetId = id;
   document.getElementById('detailModal').classList.remove('hidden');
-  loadTargetDetail(id);
+  loadTargetDetail(id, currentDetailRange);
 }
 
 function closeDetailModal() {
@@ -978,12 +1123,51 @@ function closeDetailModal() {
   currentDetailTargetId = null;
 }
 
-async function loadTargetDetail(id) {
+async function syncDetailTargetNow() {
+  if (!currentDetailTargetId) return;
+  const btn = document.getElementById('btnDetailSyncNow');
+  const icon = document.getElementById('detailSyncIcon');
+  if (icon) icon.classList.add('animate-spin');
+  if (btn) btn.disabled = true;
+
   try {
-    const res = await fetch(`/api/targets/${id}`);
+    const res = await fetch(`/api/targets/${currentDetailTargetId}/sync-now`, { method: 'POST' });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    await loadTargetDetail(currentDetailTargetId, currentDetailRange);
+    fetchTargets(currentTargetsPage);
+  } catch (e) {
+    showNoticeModal({ title: 'Lỗi đồng bộ', message: e.message, type: 'error' });
+  } finally {
+    if (icon) icon.classList.remove('animate-spin');
+    if (btn) btn.disabled = false;
+  }
+}
+
+function setDetailTimeRange(range) {
+  currentDetailRange = range;
+  document.querySelectorAll('.detail-time-btn').forEach(btn => {
+    if (btn.getAttribute('data-range') === range) {
+      btn.className = 'detail-time-btn px-2 py-1 rounded-lg text-[11px] font-semibold bg-brand-blue text-white shadow-sm border border-brand-cyan/20';
+    } else {
+      btn.className = 'detail-time-btn px-2 py-1 rounded-lg text-[11px] font-medium text-txt-sub hover:text-txt-body transition';
+    }
+  });
+  const badge = document.getElementById('detailRangeBadge');
+  if (badge) badge.textContent = range;
+  if (currentDetailTargetId) {
+    loadTargetDetail(currentDetailTargetId, range);
+  }
+}
+
+async function loadTargetDetail(id, range = currentDetailRange) {
+  try {
+    const res = await fetch(`/api/targets/${id}?range=${range}`);
     const data = await res.json();
     const t = data.target;
     const snap = data.latestSnapshot;
+    const auth = data.authenticity || {};
+    const delta = data.deltaPeriod || { reactions: 0, comments: 0, shares: 0 };
 
     document.getElementById('detailAvatar').src = t.author_avatar || t.post_image || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=80&h=80&fit=crop';
     
@@ -1000,29 +1184,80 @@ async function loadTargetDetail(id) {
     }
 
     document.getElementById('detailAuthor').textContent = t.author_name || 'Facebook Post';
-    document.getElementById('detailTypeBadge').textContent = t.target_type;
-    document.getElementById('detailStatusBadge').textContent = t.status;
+    document.getElementById('detailTypeBadge').textContent = t.target_type || 'POST';
+    document.getElementById('detailStatusBadge').textContent = t.status || 'ACTIVE';
     document.getElementById('detailSnippet').textContent = t.content_snippet || t.normalized_url;
     document.getElementById('detailLink').href = t.normalized_url;
 
-    // 3 Groups numbers
-    document.getElementById('detailTotalReactions').textContent = (snap ? snap.total_reactions : t.latest_reactions).toLocaleString();
-    document.getElementById('detailDeltaReactions').textContent = `+${snap ? snap.delta_reactions : 0} từ lần kiểm tra trước`;
+    const sourceBadgeEl = document.getElementById('detailSourceTypeBadge');
+    if (sourceBadgeEl) {
+      sourceBadgeEl.textContent = t.latest_source_type === 'LOCAL_SIDECAR' ? 'Nguồn: Local Sidecar (IP Dân cư)' : (t.latest_source_type === 'GRAPH_API' ? 'Nguồn: Meta Graph API' : (t.latest_source_type === 'MBASIC' ? 'Nguồn: Clone Cookie mbasic' : 'Nguồn: Hệ thống'));
+    }
 
-    document.getElementById('detailTotalComments').textContent = (snap ? snap.total_comments : t.latest_comments).toLocaleString();
-    document.getElementById('detailDeltaComments').textContent = `+${snap ? snap.delta_comments : 0} từ lần kiểm tra trước`;
+    // Engagement Totals and Percentages
+    const totalRx = snap ? (snap.total_reactions || 0) : (t.latest_reactions || 0);
+    const totalCmt = snap ? (snap.total_comments || 0) : (t.latest_comments || 0);
+    const totalSh = snap ? (snap.total_shares || 0) : (t.latest_shares || 0);
+    const sumEngagement = Math.max(1, totalRx + totalCmt + totalSh);
 
-    document.getElementById('detailTotalShares').textContent = (snap ? snap.total_shares : t.latest_shares).toLocaleString();
-    document.getElementById('detailDeltaShares').textContent = `+${snap ? snap.delta_shares : 0} từ lần kiểm tra trước`;
+    const rxPct = ((totalRx / sumEngagement) * 100).toFixed(1);
+    const cmtPct = ((totalCmt / sumEngagement) * 100).toFixed(1);
+    const shPct = ((totalSh / sumEngagement) * 100).toFixed(1);
+
+    document.getElementById('detailTotalReactions').textContent = totalRx.toLocaleString();
+    document.getElementById('detailDeltaReactions').textContent = `+${delta.reactions.toLocaleString()} (${range})`;
+    const shareRxPctEl = document.getElementById('detailShareReactionsPct');
+    if (shareRxPctEl) shareRxPctEl.textContent = `${rxPct}%`;
+
+    document.getElementById('detailTotalComments').textContent = totalCmt.toLocaleString();
+    document.getElementById('detailDeltaComments').textContent = `+${delta.comments.toLocaleString()} (${range})`;
+    const shareCmtPctEl = document.getElementById('detailShareCommentsPct');
+    if (shareCmtPctEl) shareCmtPctEl.textContent = `${cmtPct}%`;
+
+    document.getElementById('detailTotalShares').textContent = totalSh.toLocaleString();
+    document.getElementById('detailDeltaShares').textContent = `+${delta.shares.toLocaleString()} (${range})`;
+    const shareShPctEl = document.getElementById('detailShareSharesPct');
+    if (shareShPctEl) shareShPctEl.textContent = `${shPct}%`;
 
     // 7 Reactions breakdown
-    render7ReactionsBreakdown(snap);
+    render7ReactionsBreakdown(snap, totalRx);
+
+    // Authenticity breakdown
+    const totalEng = auth.totalEngagement || sumEngagement;
+    const organicCount = auth.organicCount || 0;
+    const unknownCount = auth.unknownCount !== undefined ? auth.unknownCount : Math.max(0, totalEng - organicCount);
+    const suspiciousCount = auth.suspiciousCount || 0;
+
+    const orgPct = totalEng > 0 ? ((organicCount / totalEng) * 100).toFixed(1) : 0;
+    const suspPct = totalEng > 0 ? ((suspiciousCount / totalEng) * 100).toFixed(1) : 0;
+    const unkPct = Math.max(0, (100 - parseFloat(orgPct) - parseFloat(suspPct))).toFixed(1);
+
+    const barOrg = document.getElementById('detailBarOrganic');
+    const barUnk = document.getElementById('detailBarUnknown');
+    const barSusp = document.getElementById('detailBarSuspicious');
+    if (barOrg) barOrg.style.width = `${orgPct}%`;
+    if (barUnk) barUnk.style.width = `${unkPct}%`;
+    if (barSusp) barSusp.style.width = `${suspPct}%`;
+
+    const valOrgPct = document.getElementById('detailValOrganicPct');
+    const valOrgCnt = document.getElementById('detailValOrganicCount');
+    const valUnkPct = document.getElementById('detailValUnknownPct');
+    const valUnkCnt = document.getElementById('detailValUnknownCount');
+    const valSuspPct = document.getElementById('detailValSuspiciousPct');
+    const valSuspCnt = document.getElementById('detailValSuspiciousCount');
+    if (valOrgPct) valOrgPct.textContent = `${orgPct}%`;
+    if (valOrgCnt) valOrgCnt.textContent = `${organicCount.toLocaleString()} tài khoản`;
+    if (valUnkPct) valUnkPct.textContent = `${unkPct}%`;
+    if (valUnkCnt) valUnkCnt.textContent = `${unknownCount.toLocaleString()} tương tác`;
+    if (valSuspPct) valSuspPct.textContent = `${suspPct}%`;
+    if (valSuspCnt) valSuspCnt.textContent = `${suspiciousCount.toLocaleString()} nghi vấn`;
 
     // Timeline Chart
     renderDetailHistoryChart(data.snapshots || []);
 
     // Identifiable Accounts
-    renderInteractedAccounts(data.interactedAccounts || []);
+    currentDetailAccounts = data.interactedAccounts || [];
+    filterDetailAccounts();
 
     // Alert configs
     const cfg = data.alertConfig || {};
@@ -1034,63 +1269,77 @@ async function loadTargetDetail(id) {
   }
 }
 
-function render7ReactionsBreakdown(snap) {
+function render7ReactionsBreakdown(snap, totalRx = 0) {
   const container = document.getElementById('reactionBarsContainer');
   if (!snap) {
     container.innerHTML = '<div class="col-span-7 text-xs text-txt-sub py-2">Đang chờ lần đồng bộ dữ liệu đầu tiên...</div>';
     return;
   }
 
+  const sumRx = Math.max(1, totalRx || 1);
   const items = [
     { 
       label: 'Like', 
-      count: snap.like_count, 
-      svg: '<svg class="w-5 h-5 mx-auto text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5"></path></svg>'
+      count: snap.like_count || 0,
+      pct: (((snap.like_count || 0) / sumRx) * 100).toFixed(1),
+      svg: '<svg class="w-4 h-4 mx-auto text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5"></path></svg>'
     },
     { 
       label: 'Love', 
-      count: snap.love_count, 
-      svg: '<svg class="w-5 h-5 mx-auto text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path></svg>'
+      count: snap.love_count || 0, 
+      pct: (((snap.love_count || 0) / sumRx) * 100).toFixed(1),
+      svg: '<svg class="w-4 h-4 mx-auto text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path></svg>'
     },
     { 
       label: 'Care', 
-      count: snap.care_count, 
-      svg: '<svg class="w-5 h-5 mx-auto text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>'
+      count: snap.care_count || 0, 
+      pct: (((snap.care_count || 0) / sumRx) * 100).toFixed(1),
+      svg: '<svg class="w-4 h-4 mx-auto text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>'
     },
     { 
       label: 'Haha', 
-      count: snap.haha_count, 
-      svg: '<svg class="w-5 h-5 mx-auto text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>'
+      count: snap.haha_count || 0, 
+      pct: (((snap.haha_count || 0) / sumRx) * 100).toFixed(1),
+      svg: '<svg class="w-4 h-4 mx-auto text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>'
     },
     { 
       label: 'Wow', 
-      count: snap.wow_count, 
-      svg: '<svg class="w-5 h-5 mx-auto text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>'
+      count: snap.wow_count || 0, 
+      pct: (((snap.wow_count || 0) / sumRx) * 100).toFixed(1),
+      svg: '<svg class="w-4 h-4 mx-auto text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>'
     },
     { 
       label: 'Sad', 
-      count: snap.sad_count, 
-      svg: '<svg class="w-5 h-5 mx-auto text-txt-sub" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>'
+      count: snap.sad_count || 0, 
+      pct: (((snap.sad_count || 0) / sumRx) * 100).toFixed(1),
+      svg: '<svg class="w-4 h-4 mx-auto text-txt-sub" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>'
     },
     { 
       label: 'Angry', 
-      count: snap.angry_count, 
-      svg: '<svg class="w-5 h-5 mx-auto text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>'
+      count: snap.angry_count || 0, 
+      pct: (((snap.angry_count || 0) / sumRx) * 100).toFixed(1),
+      svg: '<svg class="w-4 h-4 mx-auto text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>'
     },
   ];
 
   container.innerHTML = items.map(i => `
-    <div class="rx-vector-box rounded-xl p-2.5">
-      <div class="mb-1.5">${i.svg}</div>
-      <div class="text-xs font-bold text-txt-title">${(i.count || 0).toLocaleString()}</div>
-      <div class="text-[11px] text-txt-sub mt-0.5 uppercase tracking-wider font-semibold">${i.label}</div>
+    <div class="rx-vector-box rounded-xl p-2.5 bg-surface-elevated/40 border border-surface-border flex flex-col justify-between">
+      <div>
+        <div class="mb-1">${i.svg}</div>
+        <div class="text-xs font-bold text-txt-title">${(i.count || 0).toLocaleString()}</div>
+        <div class="text-[10px] text-brand-cyan font-mono font-medium">${i.pct}%</div>
+      </div>
+      <div class="text-[10px] text-txt-sub mt-1 uppercase tracking-wider font-semibold border-t border-surface-border/50 pt-1">${i.label}</div>
     </div>
   `).join('');
 }
 
 function renderDetailHistoryChart(snapshots) {
   const ctx = document.getElementById('detailHistoryChart').getContext('2d');
-  const labels = snapshots.map(s => new Date(s.observed_at).toLocaleTimeString('vi-VN'));
+  const labels = snapshots.map(s => {
+    const d = new Date(s.observed_at);
+    return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
+  });
   const reactions = snapshots.map(s => s.total_reactions);
   const comments = snapshots.map(s => s.total_comments);
   const shares = snapshots.map(s => s.total_shares);
@@ -1113,7 +1362,13 @@ function renderDetailHistoryChart(snapshots) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: theme.textColor, font: { size: 11 } } } },
+      plugins: { 
+        legend: { labels: { color: theme.textColor, font: { size: 11 } } },
+        tooltip: {
+          mode: 'index',
+          intersect: false
+        }
+      },
       scales: {
         x: { ticks: { color: theme.subColor, font: { size: 10 } }, grid: { display: false } },
         y: { ticks: { color: theme.subColor, font: { size: 10 } }, grid: { color: theme.gridColor } }
@@ -1122,20 +1377,39 @@ function renderDetailHistoryChart(snapshots) {
   });
 }
 
-function renderInteractedAccounts(accounts) {
-  const container = document.getElementById('detailInteractedList');
-  document.getElementById('detailIdentifiedCount').textContent = `${accounts.length} tương tác`;
+function filterDetailAccounts() {
+  const searchInput = document.getElementById('detailAccountSearchInput');
+  const typeFilter = document.getElementById('detailAccountTypeFilter');
+  const term = searchInput ? searchInput.value.toLowerCase().trim() : '';
+  const type = typeFilter ? typeFilter.value.toUpperCase() : '';
 
-  if (accounts.length === 0) {
-    container.innerHTML = '<div class="text-txt-sub italic py-3 text-center">Chưa có bình luận hoặc tài khoản tương tác nào được bóc tách. Bấm nút đồng bộ để quét.</div>';
+  let filtered = currentDetailAccounts || [];
+  if (type) {
+    filtered = filtered.filter(a => (a.interaction_type || '').toUpperCase() === type);
+  }
+  if (term) {
+    filtered = filtered.filter(a => {
+      const name = (a.display_name || '').toLowerCase();
+      const text = (a.comment_text || '').toLowerCase();
+      return name.includes(term) || text.includes(term);
+    });
+  }
+
+  const container = document.getElementById('detailInteractedList');
+  const countBadge = document.getElementById('detailIdentifiedCount');
+  if (countBadge) countBadge.textContent = `${filtered.length} tương tác`;
+
+  if (!container) return;
+  if (filtered.length === 0) {
+    container.innerHTML = '<div class="text-txt-sub italic py-4 text-center">Không có tương tác nào khớp với bộ lọc hoặc bài viết chưa có dữ liệu tương tác bóc tách.</div>';
     return;
   }
 
-  container.innerHTML = accounts.map(a => {
+  container.innerHTML = filtered.map(a => {
     const isComment = (a.interaction_type || '').toUpperCase() === 'COMMENT';
     const typeBadge = isComment
-      ? '<span class="px-1.5 py-0.5 rounded text-[10px] bg-brand-blue/20 text-brand-cyan border border-brand-cyan/20 inline-flex items-center gap-1"><svg class="w-3 h-3 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg><span>Bình luận</span></span>'
-      : `<span class="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 inline-flex items-center gap-1"><svg class="w-3 h-3 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5"></path></svg><span>Cảm xúc (${a.reaction_type || 'Like'})</span></span>`;
+      ? '<span class="px-1.5 py-0.5 rounded text-[10px] bg-brand-blue/20 text-brand-cyan border border-brand-cyan/20 inline-flex items-center gap-1 font-medium"><svg class="w-3 h-3 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg><span>Bình luận</span></span>'
+      : `<span class="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 inline-flex items-center gap-1 font-medium"><svg class="w-3 h-3 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5"></path></svg><span>Cảm xúc (${a.reaction_type || 'Like'})</span></span>`;
     
     const profileLink = a.profile_url
       ? `<a href="${a.profile_url}" target="_blank" class="font-semibold text-txt-title hover:text-brand-cyan transition">${a.display_name}</a>`

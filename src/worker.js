@@ -396,41 +396,104 @@ async function handleApiRoute(pathname, method, request, env, url) {
     const status = url.searchParams.get('status');
     const type = url.searchParams.get('type');
     const search = url.searchParams.get('search');
+    const sort = url.searchParams.get('sort') || 'newest';
+    const limit = parseInt(url.searchParams.get('limit') || '50', 10);
+    const page = parseInt(url.searchParams.get('page') || '1', 10);
+    const offset = (page - 1) * limit;
 
-    let sql = `
-      SELECT t.*, 
-             a.name AS bound_account_name, 
-             a.account_type AS bound_account_type,
-             (SELECT source_type FROM snapshots WHERE target_id = t.id ORDER BY id DESC LIMIT 1) AS latest_source_type
-      FROM monitored_targets t
-      LEFT JOIN accounts a ON a.id = t.bound_account_id
-      WHERE 1=1
-    `;
+    let whereClause = ' WHERE 1=1';
     const params = [];
 
     if (status) {
-      sql += ' AND t.status = ?';
+      whereClause += ' AND t.status = ?';
       params.push(status);
     }
     if (type) {
-      sql += ' AND t.target_type = ?';
+      whereClause += ' AND t.target_type = ?';
       params.push(type);
     }
     if (search) {
-      sql += ' AND (t.normalized_url LIKE ? OR t.author_name LIKE ? OR t.content_snippet LIKE ?)';
+      whereClause += ' AND (t.normalized_url LIKE ? OR t.author_name LIKE ? OR t.content_snippet LIKE ?)';
       const term = `%${search}%`;
       params.push(term, term, term);
     }
-    sql += ' ORDER BY t.id DESC LIMIT 50';
 
-    const results = (await db.prepare(sql).bind(...params).all())?.results || [];
-    return jsonResponse({ targets: results });
+    // Sort order
+    let orderSql = ' ORDER BY t.id DESC';
+    if (sort === 'growth') {
+      orderSql = ' ORDER BY (SELECT growth_rate_5m FROM snapshots WHERE target_id = t.id ORDER BY id DESC LIMIT 1) DESC, t.latest_reactions DESC';
+    } else if (sort === 'reactions') {
+      orderSql = ' ORDER BY t.latest_reactions DESC';
+    } else if (sort === 'comments') {
+      orderSql = ' ORDER BY t.latest_comments DESC';
+    } else if (sort === 'shares') {
+      orderSql = ' ORDER BY t.latest_shares DESC';
+    } else if (sort === 'oldest') {
+      orderSql = ' ORDER BY t.id ASC';
+    }
+
+    const countSql = `SELECT COUNT(*) as count FROM monitored_targets t ${whereClause}`;
+    const totalCount = (await db.prepare(countSql).bind(...params).first())?.count || 0;
+
+    const sql = `
+      SELECT t.*, 
+             a.name AS bound_account_name, 
+             a.account_type AS bound_account_type,
+             (SELECT source_type FROM snapshots WHERE target_id = t.id ORDER BY id DESC LIMIT 1) AS latest_source_type,
+             (SELECT growth_rate_5m FROM snapshots WHERE target_id = t.id ORDER BY id DESC LIMIT 1) AS latest_growth_5m
+      FROM monitored_targets t
+      LEFT JOIN accounts a ON a.id = t.bound_account_id
+      ${whereClause}
+      ${orderSql}
+      LIMIT ? OFFSET ?
+    `;
+
+    const results = (await db.prepare(sql).bind(...params, limit, offset).all())?.results || [];
+
+    // 5 Monitoring KPI Stats
+    const totalTargets = (await db.prepare('SELECT COUNT(*) as count FROM monitored_targets').first())?.count || 0;
+    const activeTargets = (await db.prepare("SELECT COUNT(*) as count FROM monitored_targets WHERE status = 'ACTIVE'").first())?.count || 0;
+    const pausedTargets = (await db.prepare("SELECT COUNT(*) as count FROM monitored_targets WHERE status = 'PAUSED'").first())?.count || 0;
+    const errorTargets = (await db.prepare("SELECT COUNT(*) as count FROM monitored_targets WHERE status IN ('ERROR', 'INACCESSIBLE', 'NEEDS_AUTH', 'PERMISSION_REQUIRED', 'RATE_LIMITED')").first())?.count || 0;
+    const unresolvedAlerts = (await db.prepare("SELECT COUNT(*) as count FROM alerts WHERE acknowledged = 0").first())?.count || 0;
+
+    return jsonResponse({
+      targets: results,
+      totalCount,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(totalCount / limit)),
+      kpi: {
+        totalTargets,
+        activeTargets,
+        pausedTargets,
+        errorTargets,
+        unresolvedAlerts
+      }
+    });
   }
 
   // GET /api/targets/:id
   const targetIdMatch = pathname.match(/^\/api\/targets\/(\d+)$/);
   if (targetIdMatch && method === 'GET') {
     const id = parseInt(targetIdMatch[1], 10);
+    const rangeParam = url.searchParams.get('range') || '24H';
+    const rangeMap = {
+      '1M': 60 * 1000,
+      '5M': 5 * 60 * 1000,
+      '15M': 15 * 60 * 1000,
+      '30M': 30 * 60 * 1000,
+      '1H': 60 * 60 * 1000,
+      '3H': 3 * 60 * 60 * 1000,
+      '6H': 6 * 60 * 60 * 1000,
+      '12H': 12 * 60 * 60 * 1000,
+      '24H': 24 * 60 * 60 * 1000,
+      '7D': 7 * 24 * 60 * 60 * 1000,
+      '30D': 30 * 24 * 60 * 60 * 1000
+    };
+    const rangeMs = rangeMap[rangeParam] || (24 * 60 * 60 * 1000);
+    const cutoffTime = new Date(Date.now() - rangeMs).toISOString();
+
     const target = await db.prepare(`
       SELECT t.*, 
              a.name AS bound_account_name, 
@@ -442,18 +505,95 @@ async function handleApiRoute(pathname, method, request, env, url) {
     `).bind(id).first();
     if (!target) return jsonResponse({ error: 'Không tìm thấy đối tượng' }, 404);
 
-    const snapshots = (await db.prepare('SELECT * FROM snapshots WHERE target_id = ? ORDER BY observed_at DESC LIMIT 50').bind(id).all())?.results || [];
-    const latestSnapshot = snapshots[0] || null;
-    const interactedAccounts = (await db.prepare('SELECT * FROM accounts_interacted WHERE target_id = ? ORDER BY observed_at DESC LIMIT 30').bind(id).all())?.results || [];
+    const snapshots = (await db.prepare('SELECT * FROM snapshots WHERE target_id = ? AND observed_at >= ? ORDER BY observed_at DESC LIMIT 100').bind(id, cutoffTime).all())?.results || [];
+    
+    // Fallback if no snapshots in time range: get at least the latest snapshot
+    let latestSnapshot = snapshots[0] || null;
+    if (!latestSnapshot) {
+      latestSnapshot = await db.prepare('SELECT * FROM snapshots WHERE target_id = ? ORDER BY id DESC LIMIT 1').bind(id).first();
+    }
+
+    const interactedAccounts = (await db.prepare('SELECT * FROM accounts_interacted WHERE target_id = ? AND observed_at >= ? ORDER BY observed_at DESC LIMIT 50').bind(id, cutoffTime).all())?.results || [];
     const alertConfig = (await db.prepare('SELECT * FROM target_alert_configs WHERE target_id = ?').bind(id).first()) || {};
+    const recentAlerts = (await db.prepare('SELECT * FROM alerts WHERE target_id = ? ORDER BY detected_at DESC LIMIT 10').bind(id).all())?.results || [];
+
+    // Authenticity Analysis for this specific target
+    const totalIdentified = interactedAccounts.length;
+    const suspiciousCount = (await db.prepare(`
+      SELECT COUNT(*) as count FROM accounts_interacted 
+      WHERE target_id = ? AND comment_text IN (
+        SELECT comment_text FROM accounts_interacted WHERE target_id = ? AND comment_text IS NOT NULL AND length(comment_text) > 3 
+        GROUP BY comment_text HAVING count(*) > 2
+      )
+    `).bind(id, id).first())?.count || 0;
+
+    const totalEngagement = (target.latest_reactions || 0) + (target.latest_comments || 0) + (target.latest_shares || 0);
+    const organicCount = Math.max(0, totalIdentified - suspiciousCount);
+    const unknownCount = Math.max(0, totalEngagement - totalIdentified);
+
+    // Delta within the selected period
+    let deltaPeriod = { reactions: 0, comments: 0, shares: 0 };
+    if (snapshots.length >= 2) {
+      const oldest = snapshots[snapshots.length - 1];
+      const newest = snapshots[0];
+      deltaPeriod = {
+        reactions: Math.max(0, (newest.total_reactions || 0) - (oldest.total_reactions || 0)),
+        comments: Math.max(0, (newest.total_comments || 0) - (oldest.total_comments || 0)),
+        shares: Math.max(0, (newest.total_shares || 0) - (oldest.total_shares || 0))
+      };
+    } else if (snapshots.length === 1) {
+      deltaPeriod = {
+        reactions: snapshots[0].delta_reactions || 0,
+        comments: snapshots[0].delta_comments || 0,
+        shares: snapshots[0].delta_shares || 0
+      };
+    }
 
     return jsonResponse({
+      range: rangeParam,
       target,
       latestSnapshot,
       snapshots: snapshots.reverse(),
       interactedAccounts,
-      alertConfig
+      alertConfig,
+      recentAlerts,
+      authenticity: {
+        totalIdentified,
+        organicCount,
+        suspiciousCount,
+        unknownCount,
+        totalEngagement,
+        status: totalIdentified > 0 ? 'AVAILABLE' : 'PARTIAL'
+      },
+      deltaPeriod
     });
+  }
+
+  // PATCH /api/targets/:id (Update status, check_interval_sec, priority)
+  if (targetIdMatch && method === 'PATCH') {
+    const id = parseInt(targetIdMatch[1], 10);
+    const body = await request.json();
+    const updates = [];
+    const params = [];
+
+    if (body.status !== undefined) {
+      updates.push('status = ?');
+      params.push(body.status);
+    }
+    if (body.check_interval_sec !== undefined || body.checkIntervalSec !== undefined) {
+      updates.push('check_interval_sec = ?');
+      params.push(parseInt(body.check_interval_sec || body.checkIntervalSec, 10));
+    }
+    if (body.priority !== undefined) {
+      updates.push('priority = ?');
+      params.push(parseInt(body.priority, 10));
+    }
+
+    if (updates.length > 0) {
+      params.push(id);
+      await db.prepare(`UPDATE monitored_targets SET ${updates.join(', ')} WHERE id = ?`).bind(...params).run();
+    }
+    return jsonResponse({ success: true, id });
   }
 
   // DELETE /api/targets/:id

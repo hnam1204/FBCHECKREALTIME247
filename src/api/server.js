@@ -301,72 +301,169 @@ function createServer() {
 
   // 4. List Targets with Filter & Pagination
   app.get('/api/targets', (req, res) => {
-    const { status, search, type, limit = 50, page = 1 } = req.query;
-    let sql = 'SELECT * FROM monitored_targets WHERE 1=1';
+    const { status, search, type, sort = 'newest', limit = 50, page = 1 } = req.query;
+    let whereClause = ' WHERE 1=1';
     const params = [];
 
     if (status) {
-      sql += ' AND status = ?';
+      whereClause += ' AND status = ?';
       params.push(status);
     }
     if (type) {
-      sql += ' AND target_type = ?';
+      whereClause += ' AND target_type = ?';
       params.push(type);
     }
     if (search) {
-      sql += ' AND (normalized_url LIKE ? OR author_name LIKE ? OR content_snippet LIKE ?)';
+      whereClause += ' AND (normalized_url LIKE ? OR author_name LIKE ? OR content_snippet LIKE ?)';
       const term = `%${search}%`;
       params.push(term, term, term);
     }
 
-    sql += ' ORDER BY id DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit, 10), (parseInt(page, 10) - 1) * parseInt(limit, 10));
+    let orderSql = ' ORDER BY id DESC';
+    if (sort === 'growth') {
+      orderSql = ' ORDER BY (SELECT growth_rate_5m FROM snapshots WHERE target_id = monitored_targets.id ORDER BY id DESC LIMIT 1) DESC, latest_reactions DESC';
+    } else if (sort === 'reactions') {
+      orderSql = ' ORDER BY latest_reactions DESC';
+    } else if (sort === 'comments') {
+      orderSql = ' ORDER BY latest_comments DESC';
+    } else if (sort === 'shares') {
+      orderSql = ' ORDER BY latest_shares DESC';
+    } else if (sort === 'oldest') {
+      orderSql = ' ORDER BY id ASC';
+    }
 
-    const targets = db.prepare(sql).all(...params);
-    res.json({ targets, page: parseInt(page, 10) });
+    const countSql = `SELECT COUNT(*) as count FROM monitored_targets ${whereClause}`;
+    const totalCount = db.prepare(countSql).get(...params)?.count || 0;
+
+    const sql = `SELECT * FROM monitored_targets ${whereClause} ${orderSql} LIMIT ? OFFSET ?`;
+    const lim = parseInt(limit, 10);
+    const p = parseInt(page, 10);
+    const targets = db.prepare(sql).all(...params, lim, (p - 1) * lim);
+
+    const totalTargets = db.prepare('SELECT COUNT(*) as count FROM monitored_targets').get()?.count || 0;
+    const activeTargets = db.prepare("SELECT COUNT(*) as count FROM monitored_targets WHERE status = 'ACTIVE'").get()?.count || 0;
+    const pausedTargets = db.prepare("SELECT COUNT(*) as count FROM monitored_targets WHERE status = 'PAUSED'").get()?.count || 0;
+    const errorTargets = db.prepare("SELECT COUNT(*) as count FROM monitored_targets WHERE status IN ('ERROR', 'INACCESSIBLE', 'NEEDS_AUTH', 'PERMISSION_REQUIRED', 'RATE_LIMITED')").get()?.count || 0;
+    const unresolvedAlerts = db.prepare("SELECT COUNT(*) as count FROM alerts WHERE acknowledged = 0").get()?.count || 0;
+
+    res.json({
+      targets,
+      totalCount,
+      page: p,
+      limit: lim,
+      totalPages: Math.max(1, Math.ceil(totalCount / lim)),
+      kpi: {
+        totalTargets,
+        activeTargets,
+        pausedTargets,
+        errorTargets,
+        unresolvedAlerts
+      }
+    });
   });
 
   // 5. Get Single Target Detail (Section 5, 6, 7)
   app.get('/api/targets/:id', (req, res) => {
     const id = parseInt(req.params.id, 10);
+    const rangeParam = req.query.range || '24H';
+    const rangeMap = {
+      '1M': 60 * 1000,
+      '5M': 5 * 60 * 1000,
+      '15M': 15 * 60 * 1000,
+      '30M': 30 * 60 * 1000,
+      '1H': 60 * 60 * 1000,
+      '3H': 3 * 60 * 60 * 1000,
+      '6H': 6 * 60 * 60 * 1000,
+      '12H': 12 * 60 * 60 * 1000,
+      '24H': 24 * 60 * 60 * 1000,
+      '7D': 7 * 24 * 60 * 60 * 1000,
+      '30D': 30 * 24 * 60 * 60 * 1000
+    };
+    const rangeMs = rangeMap[rangeParam] || (24 * 60 * 60 * 1000);
+    const cutoffTime = new Date(Date.now() - rangeMs).toISOString();
+
     const target = db.prepare('SELECT * FROM monitored_targets WHERE id = ?').get(id);
     if (!target) return res.status(404).json({ error: 'Không tìm thấy đối tượng' });
 
-    // Recent snapshots (timeline for 3 groups of metrics)
+    // Snapshots within range
     const snapshots = db.prepare(`
       SELECT * FROM snapshots 
-      WHERE target_id = ? 
+      WHERE target_id = ? AND observed_at >= ?
       ORDER BY observed_at DESC 
       LIMIT 100
-    `).all(id);
+    `).all(id, cutoffTime);
 
-    // Latest snapshot
-    const latestSnapshot = snapshots[0] || null;
+    let latestSnapshot = snapshots[0] || null;
+    if (!latestSnapshot) {
+      latestSnapshot = db.prepare('SELECT * FROM snapshots WHERE target_id = ? ORDER BY id DESC LIMIT 1').get(id);
+    }
 
-    // Identifiable accounts interacted (Section 6)
+    // Identifiable accounts interacted
     const interactedAccounts = db.prepare(`
       SELECT * FROM accounts_interacted 
-      WHERE target_id = ? 
+      WHERE target_id = ? AND observed_at >= ?
       ORDER BY observed_at DESC 
       LIMIT 50
-    `).all(id);
+    `).all(id, cutoffTime);
 
-    // Alert config
     const alertConfig = alertEngine.getAlertConfig(id);
+    const recentAlerts = db.prepare('SELECT * FROM alerts WHERE target_id = ? ORDER BY detected_at DESC LIMIT 10').all(id);
+
+    const totalIdentified = interactedAccounts.length;
+    const suspiciousCount = db.prepare(`
+      SELECT COUNT(*) as count FROM accounts_interacted 
+      WHERE target_id = ? AND comment_text IN (
+        SELECT comment_text FROM accounts_interacted WHERE target_id = ? AND comment_text IS NOT NULL AND length(comment_text) > 3 
+        GROUP BY comment_text HAVING count(*) > 2
+      )
+    `).get(id, id)?.count || 0;
+
+    const totalEngagement = (target.latest_reactions || 0) + (target.latest_comments || 0) + (target.latest_shares || 0);
+    const organicCount = Math.max(0, totalIdentified - suspiciousCount);
+    const unknownCount = Math.max(0, totalEngagement - totalIdentified);
+
+    let deltaPeriod = { reactions: 0, comments: 0, shares: 0 };
+    if (snapshots.length >= 2) {
+      const oldest = snapshots[snapshots.length - 1];
+      const newest = snapshots[0];
+      deltaPeriod = {
+        reactions: Math.max(0, (newest.total_reactions || 0) - (oldest.total_reactions || 0)),
+        comments: Math.max(0, (newest.total_comments || 0) - (oldest.total_comments || 0)),
+        shares: Math.max(0, (newest.total_shares || 0) - (oldest.total_shares || 0))
+      };
+    } else if (snapshots.length === 1) {
+      deltaPeriod = {
+        reactions: snapshots[0].delta_reactions || 0,
+        comments: snapshots[0].delta_comments || 0,
+        shares: snapshots[0].delta_shares || 0
+      };
+    }
 
     res.json({
+      range: rangeParam,
       target,
       latestSnapshot,
-      snapshots: snapshots.reverse(), // chronologically for chart
+      snapshots: snapshots.reverse(),
       interactedAccounts,
-      alertConfig
+      alertConfig,
+      recentAlerts,
+      authenticity: {
+        totalIdentified,
+        organicCount,
+        suspiciousCount,
+        unknownCount,
+        totalEngagement,
+        status: totalIdentified > 0 ? 'AVAILABLE' : 'PARTIAL'
+      },
+      deltaPeriod
     });
   });
 
   // 6. Update Target
   app.patch('/api/targets/:id', (req, res) => {
     const id = parseInt(req.params.id, 10);
-    const { status, checkIntervalSec, priority } = req.body;
+    const { status, checkIntervalSec, check_interval_sec, priority } = req.body;
+    const intervalVal = checkIntervalSec || check_interval_sec || null;
 
     const target = db.prepare('SELECT * FROM monitored_targets WHERE id = ?').get(id);
     if (!target) return res.status(404).json({ error: 'Không tìm thấy đối tượng' });
@@ -377,17 +474,30 @@ function createServer() {
           check_interval_sec = COALESCE(?, check_interval_sec),
           priority = COALESCE(?, priority)
       WHERE id = ?
-    `).run(status || null, checkIntervalSec || null, priority || null, id);
+    `).run(status || null, intervalVal, priority || null, id);
 
-    res.json({ success: true, updated: { id, status, checkIntervalSec, priority } });
+    res.json({ success: true, updated: { id, status, check_interval_sec: intervalVal, priority } });
   });
 
-  // 7. Trigger Manual Immediate Sync
+  // 7. Trigger Manual Immediate Sync (Single)
   app.post('/api/targets/:id/sync-now', async (req, res) => {
     const id = parseInt(req.params.id, 10);
     try {
       await monitorScheduler.triggerImmediateCheck(id);
       res.json({ success: true, message: 'Đã kích hoạt đồng bộ tức thời' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 7b. Trigger Manual Immediate Sync (All Active Targets)
+  app.post('/api/targets/sync-all', async (req, res) => {
+    try {
+      const targets = db.prepare("SELECT id FROM monitored_targets WHERE status != 'PAUSED' LIMIT 20").all();
+      for (const t of targets) {
+        await monitorScheduler.triggerImmediateCheck(t.id).catch(() => {});
+      }
+      res.json({ success: true, count: targets.length });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

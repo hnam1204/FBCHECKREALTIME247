@@ -458,15 +458,106 @@
 
     </div>
 
-    <!-- ================= TAB: TARGETS ================= -->
-    <div id="view-targets" class="hidden space-y-4">
-      <!-- Search and Filter bar -->
-      <div class="surface-card rounded-xl p-4 flex flex-wrap gap-3 items-center justify-between">
-        <div class="flex flex-wrap items-center gap-3 flex-1">
-          <div class="relative min-w-[300px]">
-            <input type="text" id="targetSearchInput" oninput="debounceFetchTargets()" placeholder="Tìm kiếm URL, tác giả hoặc snippet..." class="w-full rounded-lg px-3.5 py-2 text-xs placeholder-txt-muted">
+    <!-- ================= TAB: TARGETS (REDESIGNED) ================= -->
+    <div id="view-targets" class="hidden space-y-6">
+
+      <!-- HEADER TRANG GIÁM SÁT -->
+      <div class="surface-card rounded-2xl p-5 border border-surface-border flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div>
+          <div class="flex items-center gap-3">
+            <h2 class="text-lg font-extrabold tracking-tight text-txt-title">Giám sát bài viết Facebook</h2>
+            <span class="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/30 inline-flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-brand-cyan animate-pulse"></span>
+              <span>Độc lập từng liên kết</span>
+            </span>
           </div>
-          <select id="targetTypeFilter" onchange="fetchTargets()" class="rounded-lg px-3 py-2 text-xs">
+          <p class="text-xs text-txt-sub mt-1">Quản lý và theo dõi biến động tương tác của các bài viết đang được giám sát 24/7</p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2.5">
+          <button onclick="openBatchModal()" class="px-4 py-2 bg-brand-blue hover:bg-brand-ocean active:scale-95 transition text-white text-xs font-semibold rounded-xl flex items-center gap-2 shadow-sm border border-brand-cyan/20">
+            <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+            <span>Thêm bài viết giám sát</span>
+          </button>
+
+          <button id="btnSyncAllTargets" onclick="syncAllTargetsNow()" title="Kích hoạt quét đồng bộ toàn bộ link" class="px-3 py-2 bg-surface-elevated hover:bg-surface text-xs text-brand-cyan font-semibold rounded-xl border border-surface-border flex items-center gap-1.5 transition active:scale-95">
+            <svg id="syncAllIcon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+            <span>Đồng bộ tất cả</span>
+          </button>
+
+          <!-- Countdown Cycle Button -->
+          <button id="btnCycleCountdown" onclick="triggerCycleTick()" title="Chu kỳ đếm ngược tự động đồng bộ (Nhấn để đồng bộ ngay)" class="px-3.5 py-2 bg-surface-elevated hover:bg-surface text-xs text-txt-body rounded-xl border border-surface-border flex items-center gap-2 transition active:scale-95 shadow-sm cursor-pointer">
+            <svg class="w-4 h-4 text-brand-cyan animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            <span>Đếm ngược: <strong id="globalCountdownText" class="text-brand-cyan font-mono font-bold">30s</strong></span>
+          </button>
+
+          <!-- Refresh Table Button -->
+          <button id="btnRefreshTargets" onclick="refreshTargetsTable(true)" class="p-2 bg-surface-elevated hover:bg-surface text-xs text-txt-body rounded-xl border border-surface-border flex items-center gap-1 transition active:scale-95 shadow-sm cursor-pointer" title="Làm mới danh sách">
+            <svg id="refreshTargetsIcon" class="w-4 h-4 text-brand-cyan transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- 5 KPI THỐNG KÊ GIÁM SÁT -->
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-3.5">
+        <!-- KPI 1: Tổng bài viết -->
+        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between">
+          <div class="flex items-center justify-between text-txt-sub">
+            <span class="text-xs font-semibold">Tổng bài viết</span>
+            <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+          </div>
+          <div class="mt-2 text-2xl font-bold text-txt-title" id="monKpiTotal">0</div>
+          <div class="mt-1 text-[11px] text-txt-sub">URL duy nhất quản lý</div>
+        </div>
+
+        <!-- KPI 2: Đang giám sát -->
+        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between">
+          <div class="flex items-center justify-between text-txt-sub">
+            <span class="text-xs font-semibold">Đang giám sát</span>
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          </div>
+          <div class="mt-2 text-2xl font-bold text-emerald-400" id="monKpiActive">0</div>
+          <div class="mt-1 text-[11px] text-emerald-400 font-medium">Scheduler 24/7 trực tiếp</div>
+        </div>
+
+        <!-- KPI 3: Tạm dừng -->
+        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between">
+          <div class="flex items-center justify-between text-txt-sub">
+            <span class="text-xs font-semibold">Tạm dừng</span>
+            <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+          </div>
+          <div class="mt-2 text-2xl font-bold text-amber-400" id="monKpiPaused">0</div>
+          <div class="mt-1 text-[11px] text-txt-sub">Đang treo tác vụ</div>
+        </div>
+
+        <!-- KPI 4: Cần xử lý -->
+        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between">
+          <div class="flex items-center justify-between text-txt-sub">
+            <span class="text-xs font-semibold">Cần xử lý</span>
+            <svg class="w-4 h-4 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+          </div>
+          <div class="mt-2 text-2xl font-bold text-rose-400" id="monKpiError">0</div>
+          <div class="mt-1 text-[11px] text-txt-sub">Lỗi quyền / Checkpoint</div>
+        </div>
+
+        <!-- KPI 5: Cảnh báo mới -->
+        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between">
+          <div class="flex items-center justify-between text-txt-sub">
+            <span class="text-xs font-semibold">Cảnh báo</span>
+            <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+          </div>
+          <div class="mt-2 text-2xl font-bold text-txt-title" id="monKpiAlerts">0</div>
+          <div class="mt-1 text-[11px] text-brand-cyan font-medium">Bất thường chưa đọc</div>
+        </div>
+      </div>
+
+      <!-- THANH ĐIỀU KHIỂN & BỘ LỌC ĐA TIÊU CHÍ -->
+      <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-wrap gap-3 items-center justify-between">
+        <div class="flex flex-wrap items-center gap-3 flex-1">
+          <div class="relative min-w-[260px] flex-1">
+            <input type="text" id="targetSearchInput" oninput="debounceFetchTargets()" placeholder="Tìm kiếm URL, tên tác giả hoặc nội dung..." class="w-full rounded-xl px-3.5 py-2 text-xs placeholder-txt-muted bg-surface-elevated border border-surface-border focus:border-brand-cyan transition">
+          </div>
+          <select id="targetTypeFilter" onchange="fetchTargets()" class="rounded-xl px-3 py-2 text-xs bg-surface-elevated border border-surface-border text-txt-body">
             <option value="">Tất cả loại nội dung</option>
             <option value="post">Bài viết (Post)</option>
             <option value="video">Video</option>
@@ -474,52 +565,66 @@
             <option value="page">Fanpage</option>
             <option value="group_post">Nhóm (Group)</option>
           </select>
-          <select id="targetStatusFilter" onchange="fetchTargets()" class="rounded-lg px-3 py-2 text-xs">
+          <select id="targetStatusFilter" onchange="fetchTargets()" class="rounded-xl px-3 py-2 text-xs bg-surface-elevated border border-surface-border text-txt-body">
             <option value="">Tất cả trạng thái</option>
-            <option value="ACTIVE">Đang hoạt động (ACTIVE)</option>
-            <option value="PAUSED">Tạm dừng (PAUSED)</option>
-            <option value="DATA_LIMITED">Giới hạn dữ liệu</option>
-            <option value="INACCESSIBLE">Lỗi truy cập</option>
+            <option value="ACTIVE">ACTIVE (Đang giám sát)</option>
+            <option value="PAUSED">PAUSED (Tạm dừng)</option>
+            <option value="PENDING">PENDING (Chờ xử lý)</option>
+            <option value="SYNCING">SYNCING (Đang đồng bộ)</option>
+            <option value="ERROR">ERROR (Lỗi đồng bộ)</option>
+            <option value="RATE_LIMITED">RATE_LIMITED (Giới hạn)</option>
+            <option value="PERMISSION_REQUIRED">PERMISSION_REQUIRED (Thiếu quyền)</option>
           </select>
-        </div>
-        <div class="flex items-center gap-2.5">
-          <!-- Countdown Cycle Button -->
-          <button id="btnCycleCountdown" onclick="triggerCycleTick()" title="Chu kỳ đếm ngược tự động đồng bộ (Nhấn để đồng bộ ngay)" class="px-3.5 py-2 bg-surface-elevated hover:bg-surface text-xs text-txt-body rounded-lg border border-surface-border flex items-center gap-2 transition active:scale-95 shadow-sm cursor-pointer">
-            <svg class="w-4 h-4 text-brand-cyan animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-            <span>Đếm ngược: <strong id="globalCountdownText" class="text-brand-cyan font-mono font-bold">20s</strong></span>
-          </button>
-
-          <!-- Refresh Table Button -->
-          <button id="btnRefreshTargets" onclick="refreshTargetsTable(true)" class="px-3.5 py-2 bg-surface-elevated hover:bg-surface text-xs text-txt-body rounded-lg border border-surface-border flex items-center gap-2 transition active:scale-95 shadow-sm cursor-pointer">
-            <svg id="refreshTargetsIcon" class="w-4 h-4 text-brand-cyan transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-            <span id="refreshTargetsText">Làm mới bảng</span>
-          </button>
+          <select id="targetSourceFilter" onchange="fetchTargets()" class="rounded-xl px-3 py-2 text-xs bg-surface-elevated border border-surface-border text-txt-body">
+            <option value="">Tất cả nguồn dữ liệu</option>
+            <option value="GRAPH_API">Meta Graph API</option>
+            <option value="LOCAL_SIDECAR">Local Sidecar (IP Dân cư)</option>
+            <option value="MBASIC">mbasic Cookie Clone</option>
+          </select>
+          <select id="targetSortFilter" onchange="fetchTargets()" class="rounded-xl px-3 py-2 text-xs bg-surface-elevated border border-surface-border text-txt-body">
+            <option value="newest">Mới nhất</option>
+            <option value="growth">Tăng trưởng 5m cao nhất</option>
+            <option value="reactions">Nhiều cảm xúc nhất</option>
+            <option value="comments">Nhiều bình luận nhất</option>
+            <option value="shares">Nhiều chia sẻ nhất</option>
+            <option value="oldest">Cũ nhất</option>
+          </select>
         </div>
       </div>
 
-      <!-- Targets Table -->
-      <div class="surface-card rounded-xl overflow-hidden shadow-sm">
+      <!-- BẢNG DANH SÁCH BÀI VIẾT GIÁM SÁT (9 CỘT CHUYÊN NGHIỆP) -->
+      <div class="surface-card rounded-2xl overflow-hidden border border-surface-border shadow-sm">
         <div class="overflow-x-auto">
           <table class="w-full text-left text-xs">
             <thead class="bg-surface-elevated text-txt-sub font-semibold uppercase tracking-wider border-b border-surface-border">
               <tr>
-                <th class="p-3.5">Nội dung Facebook</th>
-                <th class="p-3.5">Loại</th>
-                <th class="p-3.5 text-right">Cảm xúc</th>
+                <th class="p-3.5">Bài viết Facebook</th>
+                <th class="p-3.5">Nguồn</th>
+                <th class="p-3.5 text-right">Tổng Cảm xúc</th>
                 <th class="p-3.5 text-right">Bình luận</th>
                 <th class="p-3.5 text-right">Chia sẻ</th>
                 <th class="p-3.5 text-center">Tăng 5m</th>
-                <th class="p-3.5 text-center">Chu kỳ</th>
+                <th class="p-3.5 text-center">Chu kỳ / Đồng bộ</th>
                 <th class="p-3.5 text-center">Trạng thái</th>
                 <th class="p-3.5 text-right">Thao tác</th>
               </tr>
             </thead>
             <tbody id="targetsTableBody" class="divide-y border-surface-border">
               <tr>
-                <td colspan="9" class="p-6 text-center text-txt-sub">Đang tải danh sách...</td>
+                <td colspan="9" class="p-8 text-center text-txt-sub">Đang tải danh sách bài viết...</td>
               </tr>
             </tbody>
           </table>
+        </div>
+
+        <!-- Phân trang (Pagination) -->
+        <div class="p-3.5 bg-surface-elevated/40 border-t border-surface-border flex items-center justify-between text-xs text-txt-sub">
+          <div id="targetPaginationInfo">Hiển thị 0 bài viết</div>
+          <div class="flex items-center gap-2" id="targetPaginationControls">
+            <button id="btnPrevPage" onclick="changeTargetPage(-1)" class="px-3 py-1 bg-surface hover:bg-surface-elevated rounded-lg border border-surface-border text-txt-body font-medium transition disabled:opacity-40 disabled:cursor-not-allowed">Trang trước</button>
+            <span id="targetPageCurrent" class="font-semibold text-txt-title font-mono">1</span>
+            <button id="btnNextPage" onclick="changeTargetPage(1)" class="px-3 py-1 bg-surface hover:bg-surface-elevated rounded-lg border border-surface-border text-txt-body font-medium transition disabled:opacity-40 disabled:cursor-not-allowed">Trang sau</button>
+          </div>
         </div>
       </div>
     </div>
@@ -657,15 +762,25 @@
               <span id="detailStatusBadge" class="text-xs px-2 py-0.5 rounded-full font-bold uppercase"></span>
             </div>
             <p id="detailSnippet" class="text-xs text-txt-sub mt-0.5 line-clamp-1"></p>
-            <a id="detailLink" href="#" target="_blank" class="text-xs text-brand-cyan hover:underline flex items-center gap-1.5 mt-0.5">
-              <span>Mở bài viết gốc</span>
-              <svg class="w-3 h-3 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
-            </a>
+            <div class="flex items-center gap-2.5 mt-0.5">
+              <a id="detailLink" href="#" target="_blank" class="text-xs text-brand-cyan hover:underline flex items-center gap-1.5">
+                <span>Mở bài viết gốc</span>
+                <svg class="w-3 h-3 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+              </a>
+              <span class="text-txt-muted text-xs">•</span>
+              <span id="detailSourceTypeBadge" class="text-xs text-txt-sub font-medium"></span>
+            </div>
           </div>
         </div>
-        <button onclick="closeDetailModal()" class="text-txt-sub hover:text-txt-title p-1">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-        </button>
+        <div class="flex items-center gap-2">
+          <button id="btnDetailSyncNow" onclick="syncDetailTargetNow()" class="px-2.5 py-1.5 bg-surface-elevated hover:bg-surface text-brand-cyan rounded-lg text-xs font-semibold border border-surface-border flex items-center gap-1.5 transition active:scale-95" title="Đồng bộ dữ liệu tức thời">
+            <svg id="detailSyncIcon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+            <span>Đồng bộ ngay</span>
+          </button>
+          <button onclick="closeDetailModal()" class="text-txt-sub hover:text-txt-title p-1.5 rounded-lg hover:bg-surface-elevated transition">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+          </button>
+        </div>
       </div>
 
       <!-- Detail Body -->
@@ -683,84 +798,195 @@
             <img id="detailPostImage" src="" alt="Media bài viết" referrerpolicy="no-referrer" class="max-h-60 w-auto object-contain">
           </div>
         </div>
-        <!-- 3 Groups Summary Cards -->
-        <div class="grid grid-cols-3 gap-3">
-          <!-- Group 1: Reactions -->
-          <div class="bg-surface rounded-xl p-3 border border-surface-border">
-            <span class="text-xs font-medium text-txt-sub">Nhóm 1 — Cảm xúc</span>
-            <div class="text-xl font-bold text-brand-cyan mt-1" id="detailTotalReactions">0</div>
-            <div class="text-xs text-txt-muted mt-0.5" id="detailDeltaReactions">+0 từ mốc trước</div>
+
+        <!-- THÀNH PHẦN 5: TIME_ANALYTICS (Bộ lọc khung thời gian phân tích) -->
+        <div class="bg-surface rounded-xl p-3 border border-surface-border flex flex-wrap items-center justify-between gap-2.5">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-semibold text-txt-title flex items-center gap-1.5">
+              <svg class="w-3.5 h-3.5 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              <span>Khung thời gian phân tích:</span>
+            </span>
+            <span id="detailRangeBadge" class="text-[11px] px-2 py-0.5 rounded bg-surface-elevated text-brand-cyan font-mono font-semibold border border-surface-border">24H</span>
           </div>
-          <!-- Group 2: Comments -->
-          <div class="bg-surface rounded-xl p-3 border border-surface-border">
-            <span class="text-xs font-medium text-txt-sub">Nhóm 2 — Bình luận</span>
-            <div class="text-xl font-bold text-txt-title mt-1" id="detailTotalComments">0</div>
-            <div class="text-xs text-txt-muted mt-0.5" id="detailDeltaComments">+0 từ mốc trước</div>
-          </div>
-          <!-- Group 3: Shares -->
-          <div class="bg-surface rounded-xl p-3 border border-surface-border">
-            <span class="text-xs font-medium text-txt-sub">Nhóm 3 — Chia sẻ</span>
-            <div class="text-xl font-bold text-brand-cyan mt-1" id="detailTotalShares">0</div>
-            <div class="text-xs text-txt-muted mt-0.5" id="detailDeltaShares">+0 từ mốc trước</div>
+          <div class="flex flex-wrap items-center gap-1" id="detailRangeButtonGroup">
+            <button type="button" onclick="setDetailTimeRange('1M')" data-range="1M" class="detail-time-btn px-2 py-1 rounded-lg text-[11px] font-medium text-txt-sub hover:text-txt-body transition">1M</button>
+            <button type="button" onclick="setDetailTimeRange('5M')" data-range="5M" class="detail-time-btn px-2 py-1 rounded-lg text-[11px] font-medium text-txt-sub hover:text-txt-body transition">5M</button>
+            <button type="button" onclick="setDetailTimeRange('15M')" data-range="15M" class="detail-time-btn px-2 py-1 rounded-lg text-[11px] font-medium text-txt-sub hover:text-txt-body transition">15M</button>
+            <button type="button" onclick="setDetailTimeRange('30M')" data-range="30M" class="detail-time-btn px-2 py-1 rounded-lg text-[11px] font-medium text-txt-sub hover:text-txt-body transition">30M</button>
+            <button type="button" onclick="setDetailTimeRange('1H')" data-range="1H" class="detail-time-btn px-2 py-1 rounded-lg text-[11px] font-medium text-txt-sub hover:text-txt-body transition">1H</button>
+            <button type="button" onclick="setDetailTimeRange('3H')" data-range="3H" class="detail-time-btn px-2 py-1 rounded-lg text-[11px] font-medium text-txt-sub hover:text-txt-body transition">3H</button>
+            <button type="button" onclick="setDetailTimeRange('6H')" data-range="6H" class="detail-time-btn px-2 py-1 rounded-lg text-[11px] font-medium text-txt-sub hover:text-txt-body transition">6H</button>
+            <button type="button" onclick="setDetailTimeRange('12H')" data-range="12H" class="detail-time-btn px-2 py-1 rounded-lg text-[11px] font-medium text-txt-sub hover:text-txt-body transition">12H</button>
+            <button type="button" onclick="setDetailTimeRange('24H')" data-range="24H" class="detail-time-btn px-2 py-1 rounded-lg text-[11px] font-semibold bg-brand-blue text-white shadow-sm border border-brand-cyan/20">24H</button>
+            <button type="button" onclick="setDetailTimeRange('7D')" data-range="7D" class="detail-time-btn px-2 py-1 rounded-lg text-[11px] font-medium text-txt-sub hover:text-txt-body transition">7D</button>
+            <button type="button" onclick="setDetailTimeRange('30D')" data-range="30D" class="detail-time-btn px-2 py-1 rounded-lg text-[11px] font-medium text-txt-sub hover:text-txt-body transition">30D</button>
           </div>
         </div>
 
-        <!-- 7 Reactions Vector Breakdown -->
+        <!-- THÀNH PHẦN 2: ENGAGEMENT (Tỷ trọng và tổng tương tác) -->
+        <div class="grid grid-cols-3 gap-3">
+          <!-- Group 1: Reactions -->
+          <div class="bg-surface rounded-xl p-3 border border-surface-border flex flex-col justify-between">
+            <div class="flex items-center justify-between text-xs text-txt-sub">
+              <span class="font-medium">Nhóm 1 — Cảm xúc</span>
+              <span id="detailShareReactionsPct" class="text-[11px] font-bold text-brand-cyan">0%</span>
+            </div>
+            <div class="text-2xl font-bold text-brand-cyan mt-1" id="detailTotalReactions">0</div>
+            <div class="text-xs text-txt-muted mt-0.5 flex items-center justify-between">
+              <span id="detailDeltaReactions">+0 từ mốc trước</span>
+              <span class="text-[10px] text-txt-sub">Tỷ trọng</span>
+            </div>
+          </div>
+          <!-- Group 2: Comments -->
+          <div class="bg-surface rounded-xl p-3 border border-surface-border flex flex-col justify-between">
+            <div class="flex items-center justify-between text-xs text-txt-sub">
+              <span class="font-medium">Nhóm 2 — Bình luận</span>
+              <span id="detailShareCommentsPct" class="text-[11px] font-bold text-txt-title">0%</span>
+            </div>
+            <div class="text-2xl font-bold text-txt-title mt-1" id="detailTotalComments">0</div>
+            <div class="text-xs text-txt-muted mt-0.5 flex items-center justify-between">
+              <span id="detailDeltaComments">+0 từ mốc trước</span>
+              <span class="text-[10px] text-txt-sub">Tỷ trọng</span>
+            </div>
+          </div>
+          <!-- Group 3: Shares -->
+          <div class="bg-surface rounded-xl p-3 border border-surface-border flex flex-col justify-between">
+            <div class="flex items-center justify-between text-xs text-txt-sub">
+              <span class="font-medium">Nhóm 3 — Chia sẻ</span>
+              <span id="detailShareSharesPct" class="text-[11px] font-bold text-emerald-400">0%</span>
+            </div>
+            <div class="text-2xl font-bold text-emerald-400 mt-1" id="detailTotalShares">0</div>
+            <div class="text-xs text-txt-muted mt-0.5 flex items-center justify-between">
+              <span id="detailDeltaShares">+0 từ mốc trước</span>
+              <span class="text-[10px] text-txt-sub">Tỷ trọng</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- THÀNH PHẦN 1: REACTIONS (Phân tích 7 loại cảm xúc Meta Graph API) -->
         <div class="bg-surface rounded-xl p-4 space-y-2 border border-surface-border">
           <div class="flex items-center justify-between text-xs mb-2">
-            <span class="font-semibold text-txt-title">Phân tích 7 loại cảm xúc (Meta Graph API)</span>
-            <span class="text-xs text-brand-cyan">Chỉ số chuẩn xác</span>
+            <div>
+              <span class="font-semibold text-txt-title">Phân tích 7 loại cảm xúc (Meta Graph API)</span>
+              <p class="text-[11px] text-txt-sub">Số lượng, tỷ lệ phân bổ và độ biến thiên so với mốc trước</p>
+            </div>
+            <span class="text-xs text-brand-cyan font-mono font-medium">Bóc tách đa chiều</span>
           </div>
           <div class="grid grid-cols-7 gap-2.5 text-center" id="reactionBarsContainer">
             <!-- 7 reaction vector badges generated dynamically -->
           </div>
         </div>
 
-        <!-- Historical Time-series Chart -->
+        <!-- THÀNH PHẦN 3: AUTHENTICITY (Phân tích độ tin cậy) -->
+        <div class="bg-surface rounded-xl p-4 border border-surface-border space-y-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <h4 class="text-xs font-semibold text-txt-title">Phân tích độ tin cậy tương tác (Authenticity)</h4>
+              <p class="text-[11px] text-txt-sub">Phân loại dữ liệu theo quyền truy cập Meta và dấu hiệu bất thường</p>
+            </div>
+            <span class="text-[10px] px-2 py-0.5 rounded bg-surface-elevated text-txt-sub border border-surface-border font-medium">Tiêu chuẩn Meta</span>
+          </div>
+
+          <!-- Multi-segmented Progress Bar -->
+          <div class="space-y-2">
+            <div class="w-full bg-surface-elevated h-3 rounded-full overflow-hidden flex border border-surface-border">
+              <div id="detailBarOrganic" class="bg-brand-cyan h-full transition-all duration-500" style="width: 0%" title="Thực tế / Xác thực"></div>
+              <div id="detailBarUnknown" class="bg-slate-500 h-full transition-all duration-500" style="width: 100%" title="Ẩn danh / Giới hạn quyền Meta"></div>
+              <div id="detailBarSuspicious" class="bg-rose-500 h-full transition-all duration-500" style="width: 0%" title="Nghi vấn lặp lại"></div>
+            </div>
+
+            <!-- Percentages and count breakdown -->
+            <div class="grid grid-cols-3 gap-2 text-center pt-1">
+              <div class="bg-surface-elevated/60 p-2 rounded-xl border border-surface-border">
+                <div class="text-[10px] text-txt-sub font-semibold">ORGANIC (Xác thực)</div>
+                <div id="detailValOrganicPct" class="text-sm font-bold text-brand-cyan mt-0.5">0%</div>
+                <div id="detailValOrganicCount" class="text-[10px] text-txt-muted mt-0.5">0 tài khoản</div>
+              </div>
+              <div class="bg-surface-elevated/60 p-2 rounded-xl border border-surface-border">
+                <div class="text-[10px] text-txt-sub font-semibold">UNKNOWN (Ẩn danh)</div>
+                <div id="detailValUnknownPct" class="text-sm font-bold text-slate-300 mt-0.5">100%</div>
+                <div id="detailValUnknownCount" class="text-[10px] text-txt-muted mt-0.5">0 tương tác</div>
+              </div>
+              <div class="bg-surface-elevated/60 p-2 rounded-xl border border-surface-border">
+                <div class="text-[10px] text-txt-sub font-semibold">SUSPICIOUS (Nghi vấn)</div>
+                <div id="detailValSuspiciousPct" class="text-sm font-bold text-rose-400 mt-0.5">0%</div>
+                <div id="detailValSuspiciousCount" class="text-[10px] text-txt-muted mt-0.5">0 nghi vấn</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="pt-2 border-t border-surface-border text-[11px] text-txt-muted leading-relaxed">
+            <span class="font-medium text-txt-sub">Nguyên tắc bảo mật Meta:</span> Meta Graph API chỉ cho phép trích xuất thông tin người dùng đối với các bình luận hoặc người tương tác trên Fanpage thuộc quyền quản trị. Lượt tương tác công khai tổng hợp ngoài quyền quản trị được hiển thị ở nhóm <code class="text-txt-sub font-mono">UNKNOWN</code> đúng chuẩn minh bạch.
+          </div>
+        </div>
+
+        <!-- THÀNH PHẦN 4: GROWTH (Biểu đồ tăng trưởng lịch sử thời gian thực) -->
         <div class="bg-surface rounded-xl p-4 border border-surface-border">
-          <h4 class="text-xs font-semibold text-txt-title mb-2">Biểu đồ tiến trình tương tác theo thời gian</h4>
-          <div class="h-56">
+          <div class="flex items-center justify-between mb-2">
+            <div>
+              <h4 class="text-xs font-semibold text-txt-title">Biểu đồ tiến trình tương tác theo thời gian</h4>
+              <p class="text-[11px] text-txt-sub">Biểu diễn chuỗi số liệu theo múi giờ Việt Nam (UTC+7)</p>
+            </div>
+            <span class="text-[10px] text-txt-muted">Tự động xử lý cả khi tương tác giảm</span>
+          </div>
+          <div class="h-60">
             <canvas id="detailHistoryChart"></canvas>
           </div>
         </div>
 
-        <!-- Identifiable Accounts (Section 6) -->
-        <div class="bg-surface rounded-xl p-4 space-y-2 border border-surface-border">
-          <div class="flex items-center justify-between">
+        <!-- THÀNH PHẦN 6: INTERACTION_ACCOUNTS (Tài khoản tương tác bóc tách được) -->
+        <div class="bg-surface rounded-xl p-4 space-y-3 border border-surface-border">
+          <div class="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h4 class="text-xs font-semibold text-txt-title">Tài khoản tương tác được phép quan sát</h4>
-              <p class="text-xs text-txt-sub">Chỉ hiển thị dữ liệu trong phạm vi quyền hạn Meta cho phép</p>
+              <p class="text-[11px] text-txt-sub">Chỉ hiển thị dữ liệu trong phạm vi quyền hạn Meta cho phép</p>
             </div>
-            <span id="detailIdentifiedCount" class="text-xs px-2.5 py-0.5 rounded bg-surface-elevated text-txt-body">0 bản ghi</span>
+            <span id="detailIdentifiedCount" class="text-xs px-2.5 py-0.5 rounded-full bg-surface-elevated text-brand-cyan border border-surface-border font-semibold">0 tương tác</span>
           </div>
-          <div id="detailInteractedList" class="divide-y border-surface-border max-h-40 overflow-y-auto text-xs">
+
+          <!-- Search & Filter Controls for Accounts -->
+          <div class="flex flex-wrap gap-2 items-center">
+            <input type="text" id="detailAccountSearchInput" oninput="filterDetailAccounts()" placeholder="Tìm tên tài khoản hoặc nội dung bình luận..." class="flex-1 min-w-[200px] rounded-lg px-2.5 py-1.5 text-xs bg-surface-elevated border border-surface-border text-txt-body placeholder-txt-muted focus:border-brand-cyan transition">
+            <select id="detailAccountTypeFilter" onchange="filterDetailAccounts()" class="rounded-lg px-2.5 py-1.5 text-xs bg-surface-elevated border border-surface-border text-txt-body">
+              <option value="">Tất cả loại tương tác</option>
+              <option value="COMMENT">Chỉ bình luận (Comment)</option>
+              <option value="REACTION">Chỉ cảm xúc (Reaction)</option>
+            </select>
+          </div>
+
+          <!-- Accounts List -->
+          <div id="detailInteractedList" class="divide-y border-surface-border max-h-52 overflow-y-auto text-xs pr-1">
             <!-- Populated dynamically -->
           </div>
         </div>
 
         <!-- Threshold Config Form -->
         <div class="bg-surface rounded-xl p-4 border border-surface-border">
-          <h4 class="text-xs font-semibold text-txt-title mb-2">Cấu hình ngưỡng cảnh báo bất thường bài viết</h4>
+          <div class="flex items-center justify-between mb-2">
+            <h4 class="text-xs font-semibold text-txt-title">Cấu hình ngưỡng cảnh báo bất thường bài viết</h4>
+            <span class="text-[10px] text-brand-cyan font-medium">Kích hoạt thông báo tức thì</span>
+          </div>
           <div class="grid grid-cols-3 gap-3">
             <div>
               <label class="block text-xs text-txt-sub mb-1">Ngưỡng bùng nổ Cảm xúc (+):</label>
-              <input type="number" id="cfgReactionSpike" class="w-full rounded px-2.5 py-1 text-xs">
+              <input type="number" id="cfgReactionSpike" class="w-full rounded-lg px-2.5 py-1.5 text-xs bg-surface-elevated border border-surface-border text-txt-body">
             </div>
             <div>
               <label class="block text-xs text-txt-sub mb-1">Ngưỡng tăng Bình luận (+):</label>
-              <input type="number" id="cfgCommentSurge" class="w-full rounded px-2.5 py-1 text-xs">
+              <input type="number" id="cfgCommentSurge" class="w-full rounded-lg px-2.5 py-1.5 text-xs bg-surface-elevated border border-surface-border text-txt-body">
             </div>
             <div>
               <label class="block text-xs text-txt-sub mb-1">Ngưỡng bùng nổ Chia sẻ (+):</label>
-              <input type="number" id="cfgShareBurst" class="w-full rounded px-2.5 py-1 text-xs">
+              <input type="number" id="cfgShareBurst" class="w-full rounded-lg px-2.5 py-1.5 text-xs bg-surface-elevated border border-surface-border text-txt-body">
             </div>
           </div>
           <div class="mt-3 flex justify-end">
-            <button onclick="saveDetailAlertConfig()" class="px-3.5 py-1.5 bg-brand-blue hover:bg-brand-ocean text-white rounded text-xs border border-brand-cyan/20">
+            <button onclick="saveDetailAlertConfig()" class="px-3.5 py-1.5 bg-brand-blue hover:bg-brand-ocean text-white rounded-lg text-xs font-semibold border border-brand-cyan/20 transition active:scale-95 shadow-sm">
               Lưu cấu hình ngưỡng
             </button>
           </div>
         </div>
+
       </div>
     </div>
   </div>
