@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { parseBatchUrls, normalizeUrl, analyzeUrl } from './analyzer/urlAnalyzer.js';
 import { extractCUser, isCheckpointOrLogin, parseMbasicHtml, parseMbasicReactionsBreakdown, parseMbasicReactors } from './collector/mbasicCollector.js';
+import { parseBatchProxies, parseProxyString } from './collector/proxyHelper.js';
 
 // --- Crypto Utilities (AES-256-GCM) ---
 const ALGORITHM = 'aes-256-gcm';
@@ -380,7 +381,7 @@ async function handleApiRoute(pathname, method, request, env, url) {
 
   // GET /api/accounts
   if (pathname === '/api/accounts' && method === 'GET') {
-    const accounts = (await db.prepare('SELECT id, name, account_type, fb_account_id, scopes, status, expires_at, last_sync_at, error_log FROM accounts ORDER BY id DESC').all())?.results || [];
+    const accounts = (await db.prepare('SELECT id, name, account_type, fb_account_id, proxy_url, scopes, status, expires_at, last_sync_at, error_log FROM accounts ORDER BY id DESC').all())?.results || [];
     return jsonResponse({ accounts });
   }
 
@@ -516,8 +517,139 @@ async function handleApiRoute(pathname, method, request, env, url) {
   const accDeleteMatch = pathname.match(/^\/api\/accounts\/(\d+)$/);
   if (accDeleteMatch && method === 'DELETE') {
     const id = parseInt(accDeleteMatch[1], 10);
+    await db.prepare('UPDATE proxies SET bound_account_id = NULL WHERE bound_account_id = ?').bind(id).run();
     await db.prepare('DELETE FROM accounts WHERE id = ?').bind(id).run();
     return jsonResponse({ success: true });
+  }
+
+  // POST /api/accounts/:id/assign-proxy (Gán proxy độc lập cho từng account giữ phiên)
+  const accProxyMatch = pathname.match(/^\/api\/accounts\/(\d+)\/assign-proxy$/);
+  if (accProxyMatch && method === 'POST') {
+    const id = parseInt(accProxyMatch[1], 10);
+    const { proxy_url } = await request.json();
+    await db.prepare('UPDATE accounts SET proxy_url = ? WHERE id = ?').bind(proxy_url || null, id).run();
+    await db.prepare('UPDATE proxies SET bound_account_id = NULL WHERE bound_account_id = ?').bind(id).run();
+    if (proxy_url) {
+      await db.prepare('UPDATE proxies SET bound_account_id = ? WHERE raw_proxy = ? OR ? LIKE "%" || host || ":" || port || "%"').bind(id, proxy_url, proxy_url).run();
+    }
+    return jsonResponse({ success: true, proxy_url });
+  }
+
+  // GET /api/proxies (Danh sách pool proxy + account đang gán)
+  if (pathname === '/api/proxies' && method === 'GET') {
+    const proxies = (await db.prepare(`
+      SELECT p.*, a.name as bound_account_name
+      FROM proxies p
+      LEFT JOIN accounts a ON a.id = p.bound_account_id
+      ORDER BY p.id DESC
+    `).all())?.results || [];
+    return jsonResponse({ proxies });
+  }
+
+  // POST /api/proxies/import (Nạp hàng loạt proxy mọi định dạng)
+  if (pathname === '/api/proxies/import' && method === 'POST') {
+    const { proxies = '' } = await request.json();
+    const parsedList = parseBatchProxies(proxies);
+    if (parsedList.length === 0) {
+      return jsonResponse({ error: 'Không tìm thấy proxy hợp lệ. Hỗ trợ dạng ip:port:user:pass hoặc http://user:pass@ip:port' }, 400);
+    }
+    const now = new Date().toISOString();
+    let imported = 0;
+    for (const p of parsedList) {
+      const res = await db.prepare(`
+        INSERT INTO proxies (raw_proxy, protocol, host, port, username, password, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?)
+        ON CONFLICT(raw_proxy) DO NOTHING
+      `).bind(p.raw_proxy, p.protocol, p.host, p.port, p.username, p.password, now).run();
+      if (res.meta.changes > 0) imported++;
+    }
+    return jsonResponse({
+      success: true,
+      imported,
+      total: parsedList.length,
+      message: `Đã nạp thành công ${imported} proxy mới vào hàng đợi test tự động.`
+    });
+  }
+
+  // POST /api/proxies/request-test (Yêu cầu test lại toàn bộ hoặc 1 proxy)
+  if (pathname === '/api/proxies/request-test' && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    if (body.proxy_id) {
+      await db.prepare("UPDATE proxies SET status = 'PENDING' WHERE id = ?").bind(body.proxy_id).run();
+    } else {
+      await db.prepare("UPDATE proxies SET status = 'PENDING'").run();
+    }
+    return jsonResponse({ success: true, message: 'Đã đưa proxy vào hàng đợi test kết nối' });
+  }
+
+  // POST /api/proxies/auto-assign (Tự động cấu hình độc lập mỗi account 1 proxy khác nhau)
+  if (pathname === '/api/proxies/auto-assign' && method === 'POST') {
+    const accounts = (await db.prepare("SELECT id, name FROM accounts WHERE account_type = 'cookie' AND status = 'ACTIVE' ORDER BY id ASC").all())?.results || [];
+    let liveProxies = (await db.prepare("SELECT id, raw_proxy, protocol, host, port, username, password FROM proxies WHERE status = 'LIVE' ORDER BY latency_ms ASC, id ASC").all())?.results || [];
+    if (liveProxies.length === 0) {
+      // Fallback: nếu chưa test kịp, lấy proxies pending
+      liveProxies = (await db.prepare("SELECT id, raw_proxy, protocol, host, port, username, password FROM proxies ORDER BY id ASC").all())?.results || [];
+    }
+
+    if (liveProxies.length === 0) {
+      return jsonResponse({ error: 'Chưa có proxy nào trong danh sách. Hãy nạp proxy trước.' }, 400);
+    }
+
+    // Reset old bindings
+    await db.prepare('UPDATE proxies SET bound_account_id = NULL').run();
+    await db.prepare("UPDATE accounts SET proxy_url = NULL WHERE account_type = 'cookie'").run();
+
+    const mappings = [];
+    for (let i = 0; i < accounts.length; i++) {
+      const acc = accounts[i];
+      if (i < liveProxies.length) {
+        const p = liveProxies[i];
+        const auth = p.username && p.password ? `${encodeURIComponent(p.username)}:${encodeURIComponent(p.password)}@` : '';
+        const proxyUrl = `${p.protocol}://${auth}${p.host}:${p.port}`;
+        await db.prepare('UPDATE accounts SET proxy_url = ? WHERE id = ?').bind(proxyUrl, acc.id).run();
+        await db.prepare('UPDATE proxies SET bound_account_id = ? WHERE id = ?').bind(acc.id, p.id).run();
+        mappings.push({ account_id: acc.id, account_name: acc.name, proxy_id: p.id, proxy_url: proxyUrl });
+      }
+    }
+
+    return jsonResponse({
+      success: true,
+      assigned_count: mappings.length,
+      total_accounts: accounts.length,
+      mappings,
+      message: `Đã phân bổ 1:1 độc lập ${mappings.length} proxy cho ${accounts.length} tài khoản.`
+    });
+  }
+
+  // DELETE /api/proxies/:id (Xóa proxy)
+  const proxyDelMatch = pathname.match(/^\/api\/proxies\/(\d+)$/);
+  if (proxyDelMatch && method === 'DELETE') {
+    const id = parseInt(proxyDelMatch[1], 10);
+    const p = await db.prepare('SELECT * FROM proxies WHERE id = ?').bind(id).first();
+    if (p && p.bound_account_id) {
+      await db.prepare('UPDATE accounts SET proxy_url = NULL WHERE id = ?').bind(p.bound_account_id).run();
+    }
+    await db.prepare('DELETE FROM proxies WHERE id = ?').bind(id).run();
+    return jsonResponse({ success: true });
+  }
+
+  // POST /api/sidecar/proxy-results (Nhận kết quả test từ Local Sidecar)
+  if (pathname === '/api/sidecar/proxy-results' && method === 'POST') {
+    const secret = request.headers.get('X-Sidecar-Secret');
+    const body = await request.json();
+    if (!secret || secret !== masterKey) {
+      return jsonResponse({ error: 'Unauthorized' }, 401);
+    }
+    const { results = [] } = body;
+    const now = new Date().toISOString();
+    for (const r of results) {
+      await db.prepare(`
+        UPDATE proxies 
+        SET status = ?, latency_ms = ?, exit_ip = ?, last_tested_at = ?
+        WHERE id = ?
+      `).bind(r.live ? 'LIVE' : 'DIE', r.latency_ms || 0, r.exit_ip || null, now, r.id).run();
+    }
+    return jsonResponse({ success: true, updated: results.length });
   }
 
   // GET /api/alerts
@@ -570,14 +702,26 @@ async function handleApiRoute(pathname, method, request, env, url) {
     }
 
     const targets = (await db.prepare("SELECT * FROM monitored_targets WHERE status != 'PAUSED' ORDER BY priority DESC LIMIT 20").all())?.results || [];
-    const cookieAcc = await db.prepare("SELECT * FROM accounts WHERE account_type = 'cookie' AND status = 'ACTIVE' ORDER BY last_sync_at ASC LIMIT 1").first();
+    const allCookieAccounts = (await db.prepare("SELECT id, name, encrypted_token, proxy_url FROM accounts WHERE account_type = 'cookie' AND status = 'ACTIVE' ORDER BY last_sync_at ASC").all())?.results || [];
+    const accounts = allCookieAccounts.map(a => ({
+      id: a.id,
+      name: a.name,
+      cookie: decryptToken(a.encrypted_token, masterKey),
+      proxy_url: a.proxy_url
+    }));
+
+    const cookieAcc = allCookieAccounts[0] || null;
     const cookie = cookieAcc ? decryptToken(cookieAcc.encrypted_token, masterKey) : null;
     const proxyRow = await db.prepare("SELECT value FROM system_settings WHERE key = 'residential_proxy_url'").first();
 
+    const proxiesToTest = (await db.prepare("SELECT id, raw_proxy, protocol, host, port, username, password FROM proxies WHERE status = 'PENDING' LIMIT 20").all())?.results || [];
+
     return jsonResponse({
       targets,
+      accounts,
+      proxiesToTest,
       cookie,
-      proxyUrl: proxyRow?.value || null
+      proxyUrl: cookieAcc?.proxy_url || proxyRow?.value || null
     });
   }
 

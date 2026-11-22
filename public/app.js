@@ -934,9 +934,12 @@ async function submitBatchTargets() {
   }
 }
 
+let cachedProxies = [];
+
 // --- 5. Accounts Modal & Meta OAuth ---
 function openAccountsModal() {
   document.getElementById('accountsModal').classList.remove('hidden');
+  fetchProxiesList();
   fetchAccountsList();
   loadSettings();
 }
@@ -974,26 +977,192 @@ async function loadSettings() {
   }
 }
 
-async function saveResidentialProxy() {
-  const input = document.getElementById('residentialProxyInput');
-  const val = input ? input.value.trim() : '';
+// --- Multi-Proxy Pool & Independent Session Isolation ---
+function toggleBatchProxyInput() {
+  const box = document.getElementById('batchProxyBox');
+  if (box) box.classList.toggle('hidden');
+}
+
+async function fetchProxiesList() {
+  try {
+    const res = await fetch('/api/proxies');
+    const data = await res.json();
+    cachedProxies = data.proxies || [];
+
+    const listEl = document.getElementById('proxyPoolList');
+    const statsEl = document.getElementById('proxyPoolStats');
+    if (!listEl) return;
+
+    const liveCount = cachedProxies.filter(p => p.status === 'LIVE').length;
+    const dieCount = cachedProxies.filter(p => p.status === 'DIE').length;
+    const total = cachedProxies.length;
+    if (statsEl) statsEl.textContent = `Danh sách Proxy (${liveCount} LIVE / ${dieCount} DIE / ${total} Tổng):`;
+
+    if (cachedProxies.length === 0) {
+      listEl.innerHTML = '<div class="p-3 text-center text-txt-sub text-[11px] font-sans">Chưa có proxy nào trong pool. Nhấn "+ Nhập hàng loạt" ở trên để nạp.</div>';
+      return;
+    }
+
+    listEl.innerHTML = cachedProxies.map(p => {
+      let statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse">⏳ Đang test...</span>';
+      if (p.status === 'LIVE') {
+        statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">🟢 LIVE ${p.latency_ms}ms${p.exit_ip ? ' (' + p.exit_ip + ')' : ''}</span>`;
+      } else if (p.status === 'DIE') {
+        statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">🔴 DIE</span>';
+      }
+
+      const boundBadge = p.bound_account_name
+        ? `<span class="px-1.5 py-0.5 rounded text-[10px] bg-brand-cyan/20 text-brand-cyan border border-brand-cyan/30 font-sans" title="Đã gán độc lập cho account này">🛡️ ${p.bound_account_name}</span>`
+        : '<span class="text-txt-muted text-[10px] font-sans">Chưa gán</span>';
+
+      return `
+        <div class="p-2.5 flex items-center justify-between hover:bg-surface-elevated/80 transition">
+          <div class="flex items-center gap-2 max-w-[50%] truncate">
+            <span class="text-[10px] px-1 py-0.5 rounded bg-surface border border-surface-border text-txt-muted font-bold">${(p.protocol || 'http').toUpperCase()}</span>
+            <span class="font-bold text-txt-title truncate" title="${p.raw_proxy}">${p.host}:${p.port}</span>
+            ${p.username ? `<span class="text-[10px] text-txt-sub font-mono truncate">(${p.username})</span>` : ''}
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            ${boundBadge}
+            ${statusBadge}
+            <button onclick="testSingleProxy(${p.id})" class="px-2 py-0.5 bg-surface hover:bg-surface-elevated text-txt-sub hover:text-txt-body border border-surface-border rounded text-[10px] font-sans" title="Test lại proxy này">⚡</button>
+            <button onclick="deleteProxy(${p.id})" class="px-2 py-0.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded text-[10px] font-sans" title="Xóa proxy">✕</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Lỗi tải danh sách proxies:', err);
+  }
+}
+
+async function submitBatchProxies() {
+  const textarea = document.getElementById('batchProxyInput');
+  const text = textarea ? textarea.value.trim() : '';
+  if (!text) {
+    return showNoticeModal({
+      title: 'Chưa có dữ liệu',
+      message: 'Vui lòng dán danh sách proxy vào ô nhập liệu (mỗi proxy một dòng).',
+      type: 'warning'
+    });
+  }
 
   try {
-    const res = await fetch('/api/settings', {
+    const res = await fetch('/api/proxies/import', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ residential_proxy_url: val })
+      body: JSON.stringify({ proxies: text })
     });
     const data = await res.json();
     if (data.error) throw new Error(data.error);
 
+    textarea.value = '';
+    fetchProxiesList();
+
     showNoticeModal({
-      title: 'Cập nhật Proxy Dân Cư',
-      message: val ? 'Đã lưu cấu hình Residential Proxy thành công.' : 'Đã xóa cấu hình Proxy.',
+      title: 'Nạp Proxy thành công',
+      message: `Đã nạp thành công ${data.imported} proxy mới vào hệ thống. Node.js Sidecar đang tự động ping kiểm tra kết nối...`,
       type: 'success'
     });
   } catch (err) {
-    showNoticeModal({ title: 'Lỗi lưu Proxy', message: err.message, type: 'error' });
+    showNoticeModal({ title: 'Lỗi nạp Proxy', message: err.message, type: 'error' });
+  }
+}
+
+async function testAllProxies() {
+  const btn = document.getElementById('btnTestAllProxies');
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/proxies/request-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    fetchProxiesList();
+    showNoticeModal({
+      title: 'Đang kiểm tra kết nối Proxy',
+      message: 'Đã gửi lệnh kiểm tra tới Local Sidecar. Toàn bộ proxy trong pool đang được test kết nối và đo ping...',
+      type: 'info'
+    });
+  } catch (err) {
+    showNoticeModal({ title: 'Lỗi gửi yêu cầu', message: err.message, type: 'error' });
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function testSingleProxy(id) {
+  try {
+    await fetch('/api/proxies/request-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proxy_id: id })
+    });
+    fetchProxiesList();
+  } catch (e) {
+    console.error('Lỗi test single proxy:', e);
+  }
+}
+
+async function deleteProxy(id) {
+  showConfirmDialog({
+    title: 'Xóa Proxy',
+    message: 'Bạn có chắc chắn muốn xóa proxy này khỏi pool?',
+    confirmText: 'Xóa vĩnh viễn',
+    onConfirm: async () => {
+      try {
+        await fetch(`/api/proxies/${id}`, { method: 'DELETE' });
+        fetchProxiesList();
+        fetchAccountsList();
+      } catch (e) {
+        showNoticeModal({ title: 'Lỗi xóa proxy', message: e.message, type: 'error' });
+      }
+    }
+  });
+}
+
+async function autoAssignProxies() {
+  const btn = document.getElementById('btnAutoAssignProxies');
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/proxies/auto-assign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    fetchProxiesList();
+    fetchAccountsList();
+
+    showNoticeModal({
+      title: 'Cấu hình 1:1 độc lập thành công',
+      message: `Đã phân bổ độc lập ${data.assigned_count}/${data.total_accounts} tài khoản mỗi account một proxy dân cư riêng biệt. Phiên cookie của từng nick sẽ được bảo vệ tuyệt đối!`,
+      type: 'success'
+    });
+  } catch (err) {
+    showNoticeModal({ title: 'Lỗi gán tự động', message: err.message, type: 'error' });
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function assignProxyToAccount(accId, proxyUrl) {
+  try {
+    const res = await fetch(`/api/accounts/${accId}/assign-proxy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proxy_url: proxyUrl })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    fetchAccountsList();
+    fetchProxiesList();
+  } catch (err) {
+    showNoticeModal({ title: 'Lỗi gán Proxy', message: err.message, type: 'error' });
   }
 }
 
@@ -1039,6 +1208,25 @@ async function fetchAccountsList() {
         ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-brand-cyan/20 text-brand-cyan border border-brand-cyan/30">mbasic Cookie</span>'
         : `<span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-surface-elevated text-txt-sub">${acc.account_type.toUpperCase()}</span>`;
 
+      const proxyBadge = acc.proxy_url
+        ? `<div class="mt-1 flex items-center gap-1.5 font-mono text-[11px] text-emerald-400">
+             <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"></span>
+             <span class="truncate max-w-[200px]" title="${acc.proxy_url}">🌐 ${acc.proxy_url.replace(/https?:\/\/([^@]+@)?/, '').replace(/socks5:\/\/([^@]+@)?/, '')} (Proxy riêng)</span>
+             <button onclick="assignProxyToAccount(${acc.id}, null)" class="text-rose-400 hover:text-rose-300 ml-0.5 text-xs font-sans" title="Gỡ bỏ Proxy riêng">✕</button>
+           </div>`
+        : `<div class="mt-1 flex items-center gap-1.5 text-[11px] text-txt-muted">
+             <span class="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"></span>
+             <span>Chưa gán Proxy riêng (Dùng IP máy)</span>
+           </div>`;
+
+      // Options for proxy selector
+      const proxyOptions = cachedProxies.map(p => {
+        const auth = p.username && p.password ? `${encodeURIComponent(p.username)}:${encodeURIComponent(p.password)}@` : '';
+        const url = `${p.protocol}://${auth}${p.host}:${p.port}`;
+        const isSelected = acc.proxy_url && (acc.proxy_url === url || acc.proxy_url.includes(p.host));
+        return `<option value="${url}" ${isSelected ? 'selected' : ''}>${p.host}:${p.port} (${p.status})</option>`;
+      }).join('');
+
       return `
         <div class="p-3 flex items-center justify-between bg-surface text-xs border-b border-surface-border">
           <div>
@@ -1047,8 +1235,15 @@ async function fetchAccountsList() {
               ${typeBadge}
             </div>
             <div class="text-[11px] text-txt-sub mt-0.5">ID: ${acc.fb_account_id} | Đồng bộ: ${acc.last_sync_at ? new Date(acc.last_sync_at).toLocaleTimeString('vi-VN') : 'Chưa có'}</div>
+            ${proxyBadge}
           </div>
           <div class="flex items-center gap-2">
+            ${cachedProxies.length > 0 ? `
+              <select onchange="assignProxyToAccount(${acc.id}, this.value)" class="text-[11px] bg-surface-elevated border border-surface-border text-txt-body rounded px-1.5 py-1 max-w-[130px]" title="Chọn Proxy độc lập cho nick này">
+                <option value="">-- Gán Proxy --</option>
+                ${proxyOptions}
+              </select>
+            ` : ''}
             <span class="px-2.5 py-0.5 rounded text-xs font-semibold ${acc.status === 'ACTIVE' ? 'status-active' : 'status-inaccessible'}">${acc.status}</span>
             ${acc.account_type === 'cookie' ? `<button onclick="testCookieAccount(${acc.id}, this)" class="px-2.5 py-1 bg-brand-cyan/10 text-brand-cyan hover:bg-brand-cyan/20 border border-brand-cyan/30 rounded text-xs font-medium transition">Kiểm tra</button>` : ''}
             <button onclick="revokeAccount(${acc.id})" class="px-2.5 py-1 bg-rose-500/10 text-rose-400 rounded text-xs hover:bg-rose-500/20 transition">Thu hồi</button>

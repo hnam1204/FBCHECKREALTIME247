@@ -5,6 +5,10 @@
  */
 
 const { parseMbasicHtml, parseMbasicReactionsBreakdown, parseMbasicReactors } = require('./collector/mbasicCollector');
+const { testProxyConnectivity } = require('./collector/proxyHelper');
+const { HttpsProxyAgent } = require('https-proxy-agent');
+const { SocksProxyAgent } = require('socks-proxy-agent');
+const fetch = require('node-fetch');
 
 // Cấu hình Sidecar
 const WORKER_URL = process.env.WORKER_URL || 'https://cookiefb.coongviec.workers.dev';
@@ -33,30 +37,86 @@ async function runSidecarTick() {
       return;
     }
 
-    const { targets = [], cookie = null, proxyUrl = null } = await taskRes.json();
+    const { targets = [], accounts = [], proxiesToTest = [], cookie = null, proxyUrl = null } = await taskRes.json();
+
+    // 2. Tự động test proxy nếu có proxy ở trạng thái PENDING
+    if (Array.isArray(proxiesToTest) && proxiesToTest.length > 0) {
+      console.log(`[c4] SIDECAR: Phát hiện ${proxiesToTest.length} proxy cần test tự động...`);
+      const testResults = [];
+      for (const p of proxiesToTest) {
+        const auth = p.username && p.password ? `${encodeURIComponent(p.username)}:${encodeURIComponent(p.password)}@` : '';
+        const pUrl = `${p.protocol || 'http'}://${auth}${p.host}:${p.port}`;
+        const tRes = await testProxyConnectivity(pUrl, 6000);
+        console.log(`[c4] SIDECAR: Proxy #${p.id} (${p.host}:${p.port}) -> ${tRes.live ? `LIVE (${tRes.latency_ms}ms, IP: ${tRes.exit_ip})` : `DIE (${tRes.error})`}`);
+        testResults.push({ id: p.id, ...tRes });
+      }
+
+      try {
+        await fetch(`${WORKER_URL}/api/sidecar/proxy-results`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Sidecar-Secret': SIDECAR_SECRET },
+          body: JSON.stringify({ results: testResults })
+        });
+        console.log(`[c4] SIDECAR: Đã gửi kết quả test ${testResults.length} proxy về Cloudflare D1.`);
+      } catch (e) {
+        console.error(`[c4] SIDECAR: Lỗi gửi kết quả proxy về Edge:`, e.message);
+      }
+    }
 
     if (targets.length === 0) {
       console.log(`[c4] SIDECAR [${new Date().toLocaleTimeString('vi-VN')}]: Không có link nào cần cào.`);
       return;
     }
 
-    if (!cookie) {
+    const activeAccounts = accounts.length > 0 ? accounts : (cookie ? [{ id: 1, name: 'Default Cookie', cookie, proxy_url: proxyUrl }] : []);
+    if (activeAccounts.length === 0) {
       console.warn(`[c4] SIDECAR: Chưa có Cookie nick phụ active trên hệ thống.`);
       return;
     }
 
-    console.log(`[c4] SIDECAR [${new Date().toLocaleTimeString('vi-VN')}]: Đang xử lý ${targets.length} bài viết...`);
+    console.log(`[c4] SIDECAR [${new Date().toLocaleTimeString('vi-VN')}]: Đang xử lý ${targets.length} bài viết với ${activeAccounts.length} account độc lập...`);
 
-    // 2. Duyệt từng target và cào trực tiếp qua IP máy local (tuân thủ nghiêm ngặt chu kỳ an toàn)
+    // 3. Duyệt từng target và cào với account & proxy độc lập tương ứng
     for (const target of targets) {
       try {
         const intervalSec = target.check_interval_sec || 300;
         if (target.last_checked_at) {
           const elapsedSec = (Date.now() - new Date(target.last_checked_at).getTime()) / 1000;
           if (elapsedSec < intervalSec) {
-            // Chưa đến chu kỳ 300s, bỏ qua để chống checkpoint nick
+            // Chưa đến chu kỳ, bỏ qua để chống checkpoint nick
             continue;
           }
+        }
+
+        // Chọn account độc lập cho target này
+        let chosenAccount = null;
+        if (target.bound_account_id) {
+          chosenAccount = activeAccounts.find(a => a.id === target.bound_account_id);
+        }
+        if (!chosenAccount) {
+          chosenAccount = activeAccounts[target.id % activeAccounts.length];
+        }
+        if (!chosenAccount || !chosenAccount.cookie) {
+          console.warn(`[c4] SIDECAR: Không tìm thấy account khả dụng cho #${target.id}`);
+          continue;
+        }
+
+        // Tạo Agent định tuyến theo Proxy độc lập của Account
+        let agent = undefined;
+        const targetProxy = chosenAccount.proxy_url || proxyUrl;
+        if (targetProxy) {
+          try {
+            if (targetProxy.startsWith('socks')) {
+              agent = new SocksProxyAgent(targetProxy);
+            } else {
+              agent = new HttpsProxyAgent(targetProxy);
+            }
+            console.log(`[c4] SIDECAR: #${target.id} -> Account [${chosenAccount.name}] qua Proxy [${targetProxy}] (Phiên độc lập)`);
+          } catch (e) {
+            console.warn(`[c4] SIDECAR: Lỗi khởi tạo proxy agent cho [${chosenAccount.name}]:`, e.message);
+          }
+        } else {
+          console.log(`[c4] SIDECAR: #${target.id} -> Account [${chosenAccount.name}] qua IP Nhà Local`);
         }
 
         let fetchUrl = target.normalized_url;
@@ -70,7 +130,7 @@ async function runSidecarTick() {
         }
 
         const headers = {
-          'Cookie': cookie,
+          'Cookie': chosenAccount.cookie,
           'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
           'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
@@ -79,7 +139,7 @@ async function runSidecarTick() {
           'Sec-Fetch-Site': 'none'
         };
 
-        const res = await fetch(fetchUrl, { headers, redirect: 'follow' });
+        const res = await fetch(fetchUrl, { agent, headers, redirect: 'follow', timeout: 15000 });
         const html = await res.text();
 
         const parsed = parseMbasicHtml(html);
@@ -100,7 +160,7 @@ async function runSidecarTick() {
         if (parsed.reactionsBrowserUrl) {
           try {
             const ufiUrl = `https://mbasic.facebook.com${parsed.reactionsBrowserUrl}`;
-            const ufiRes = await fetch(ufiUrl, { headers });
+            const ufiRes = await fetch(ufiUrl, { agent, headers, timeout: 10000 });
             const ufiHtml = await ufiRes.text();
             breakdown = parseMbasicReactionsBreakdown(ufiHtml);
             const ufiReactors = parseMbasicReactors(ufiHtml);

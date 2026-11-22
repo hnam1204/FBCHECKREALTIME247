@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   account_type TEXT NOT NULL DEFAULT 'page',
   fb_account_id TEXT UNIQUE NOT NULL,
   encrypted_token TEXT NOT NULL,
+  proxy_url TEXT,
   scopes TEXT DEFAULT '',
   status TEXT NOT NULL DEFAULT 'ACTIVE',
   expires_at TEXT,
@@ -111,3 +112,21 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_target_time ON snapshots(target_id, obs
 CREATE INDEX IF NOT EXISTS idx_interacted_target ON accounts_interacted(target_id, observed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_alerts_target ON alerts(target_id, detected_at DESC);
 CREATE INDEX IF NOT EXISTS idx_targets_status ON monitored_targets(status, last_checked_at);
+
+CREATE TABLE IF NOT EXISTS proxies (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  raw_proxy TEXT UNIQUE NOT NULL,
+  protocol TEXT NOT NULL DEFAULT 'http',
+  host TEXT NOT NULL,
+  port INTEGER NOT NULL,
+  username TEXT,
+  password TEXT,
+  status TEXT NOT NULL DEFAULT 'PENDING',
+  latency_ms INTEGER DEFAULT 0,
+  exit_ip TEXT,
+  country TEXT DEFAULT 'VN',
+  bound_account_id INTEGER,
+  last_tested_at TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (bound_account_id) REFERENCES accounts(id) ON DELETE SET NULL
+);
