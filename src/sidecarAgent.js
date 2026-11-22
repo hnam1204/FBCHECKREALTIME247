@@ -206,6 +206,12 @@ async function runSidecarTick() {
 
         const interactedAccounts = [...(parsed.comments || []), ...reactors];
 
+        // Client Quality Gate: Không bao giờ đẩy snapshot 0 ghi đè lên bài viết có tương tác baseline
+        if ((target.latest_reactions || 0) > 0 && parsed.totalReactions === 0 && parsed.totalComments === 0) {
+          console.warn(`[c4] SIDECAR: [Quality Gate] Target #${target.id} cào ra 0 cảm xúc khi baseline đang là ${target.latest_reactions}. Bỏ qua push để bảo vệ tính toàn vẹn dữ liệu.`);
+          continue;
+        }
+
         // 3. Đẩy kết quả về Cloudflare D1
         const pushRes = await fetch(`${WORKER_URL}/api/sidecar/push-snapshot`, {
           method: 'POST',

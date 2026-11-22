@@ -45,6 +45,53 @@ async function decryptToken(payload, masterHexKey) {
   }
 }
 
+// --- Security & Privacy Helpers ---
+function maskProxyUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return null;
+  try {
+    if (rawUrl.includes('://')) {
+      const u = new URL(rawUrl);
+      if (u.password || u.username) {
+        return `${u.protocol}//${u.username ? u.username + ':***@' : ''}${u.host}`;
+      }
+      return rawUrl;
+    }
+    const parts = rawUrl.split(':');
+    if (parts.length === 4) {
+      return `${parts[0]}:${parts[1]}:${parts[2]}:***`;
+    }
+    return rawUrl;
+  } catch (e) {
+    return '***masked-proxy***';
+  }
+}
+
+// --- Alert Deduplication & Cooldown Engine (30-min window) ---
+async function recordAlertWithCooldown(db, { targetId, alertType, metricName, oldVal, newVal, delta, threshold, severity, message, now }, cooldownMinutes = 30) {
+  const existing = await db.prepare(`
+    SELECT id FROM alerts 
+    WHERE target_id = ? AND alert_type = ? 
+      AND (acknowledged = 0 OR (strftime('%s', ?) - strftime('%s', detected_at)) < ?)
+    ORDER BY detected_at DESC LIMIT 1
+  `).bind(targetId, alertType, now, cooldownMinutes * 60).first();
+
+  if (existing) {
+    await db.prepare(`
+      UPDATE alerts 
+      SET detected_at = ?, new_val = ?, delta = ?, message = ?
+      WHERE id = ?
+    `).bind(now, newVal, delta, message, existing.id).run();
+    return existing.id;
+  }
+
+  const res = await db.prepare(`
+    INSERT INTO alerts (target_id, alert_type, metric_name, old_val, new_val, delta, threshold, severity, message, detected_at, acknowledged)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+  `).bind(targetId, alertType, metricName, oldVal, newVal, delta, threshold, severity, message, now).run();
+
+  return res.meta?.last_row_id;
+}
+
 // Helper: JSON Response
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -801,7 +848,11 @@ async function handleApiRoute(pathname, method, request, env, url) {
 
   // GET /api/accounts
   if (pathname === '/api/accounts' && method === 'GET') {
-    const accounts = (await db.prepare('SELECT id, name, account_type, fb_account_id, proxy_url, scopes, status, expires_at, last_sync_at, error_log FROM accounts ORDER BY id DESC').all())?.results || [];
+    const rawAccounts = (await db.prepare('SELECT id, name, account_type, fb_account_id, proxy_url, scopes, status, expires_at, last_sync_at, error_log FROM accounts ORDER BY id DESC').all())?.results || [];
+    const accounts = rawAccounts.map(a => ({
+      ...a,
+      proxy_url: maskProxyUrl(a.proxy_url)
+    }));
     return jsonResponse({ accounts });
   }
 
@@ -952,17 +1003,22 @@ async function handleApiRoute(pathname, method, request, env, url) {
     if (proxy_url) {
       await db.prepare('UPDATE proxies SET bound_account_id = ? WHERE raw_proxy = ? OR ? LIKE "%" || host || ":" || port || "%"').bind(id, proxy_url, proxy_url).run();
     }
-    return jsonResponse({ success: true, proxy_url });
+    return jsonResponse({ success: true, proxy_url: maskProxyUrl(proxy_url) });
   }
 
-  // GET /api/proxies (Danh sách pool proxy + account đang gán)
+  // GET /api/proxies (Danh sách pool proxy + account đang gán - Bảo mật: mask credentials)
   if (pathname === '/api/proxies' && method === 'GET') {
-    const proxies = (await db.prepare(`
-      SELECT p.*, a.name as bound_account_name
+    const rawProxies = (await db.prepare(`
+      SELECT p.id, p.raw_proxy, p.protocol, p.host, p.port, p.username, p.status, p.latency_ms, p.exit_ip, p.last_checked_at, p.bound_account_id, p.created_at, a.name as bound_account_name
       FROM proxies p
       LEFT JOIN accounts a ON a.id = p.bound_account_id
       ORDER BY p.id DESC
     `).all())?.results || [];
+    const proxies = rawProxies.map(p => ({
+      ...p,
+      raw_proxy: maskProxyUrl(p.raw_proxy),
+      password: '***'
+    }));
     return jsonResponse({ proxies });
   }
 
@@ -1028,7 +1084,7 @@ async function handleApiRoute(pathname, method, request, env, url) {
         const proxyUrl = `${p.protocol}://${auth}${p.host}:${p.port}`;
         await db.prepare('UPDATE accounts SET proxy_url = ? WHERE id = ?').bind(proxyUrl, acc.id).run();
         await db.prepare('UPDATE proxies SET bound_account_id = ? WHERE id = ?').bind(acc.id, p.id).run();
-        mappings.push({ account_id: acc.id, account_name: acc.name, proxy_id: p.id, proxy_url: proxyUrl });
+        mappings.push({ account_id: acc.id, account_name: acc.name, proxy_id: p.id, proxy_url: maskProxyUrl(proxyUrl) });
       }
     }
 
@@ -1572,9 +1628,9 @@ async function handleApiRoute(pathname, method, request, env, url) {
 
   // GET /api/sidecar/tasks (Local Node.js Sidecar fetch việc cào trên IP máy nhà)
   if (pathname === '/api/sidecar/tasks' && method === 'GET') {
-    const secret = request.headers.get('X-Sidecar-Secret') || url.searchParams.get('secret');
+    const secret = request.headers.get('X-Sidecar-Secret');
     if (!secret || secret !== masterKey) {
-      return jsonResponse({ error: 'Mã bí mật xác thực Sidecar không hợp lệ' }, 401);
+      return jsonResponse({ error: 'Mã bí mật xác thực Sidecar không hợp lệ (yêu cầu header X-Sidecar-Secret)' }, 401);
     }
 
     const targets = (await db.prepare("SELECT * FROM monitored_targets WHERE status != 'PAUSED' ORDER BY priority DESC LIMIT 20").all())?.results || [];
@@ -1628,6 +1684,18 @@ async function handleApiRoute(pathname, method, request, env, url) {
     if (!target) return jsonResponse({ error: 'Target không tồn tại' }, 404);
 
     const lastSnap = await db.prepare('SELECT * FROM snapshots WHERE target_id = ? ORDER BY observed_at DESC LIMIT 1').bind(target_id).first();
+
+    // Data Quality Gate: Guard against zero metric drop anomalies & corrupted snapshots
+    if (lastSnap && (lastSnap.total_reactions || 0) > 0 && total_reactions === 0 && total_comments === 0) {
+      await db.prepare("UPDATE monitored_targets SET last_checked_at = ?, last_error = 'Sidecar gửi snapshot rỗng (Quality Gate bảo lưu baseline)' WHERE id = ?").bind(now, target_id).run();
+      return jsonResponse({ warning: 'Bảo lưu baseline do snapshot có số liệu rỗng bất thường', target_id });
+    }
+
+    if (lastSnap && lastSnap.total_reactions > 20 && total_reactions < lastSnap.total_reactions * 0.4) {
+      await db.prepare("UPDATE monitored_targets SET last_checked_at = ?, last_error = 'Phát hiện số liệu giảm đột ngột bất thường từ Sidecar (bảo lưu snapshot)' WHERE id = ?").bind(now, target_id).run();
+      return jsonResponse({ warning: 'Bảo lưu baseline do số liệu giảm bất thường', target_id });
+    }
+
     const deltaRx = lastSnap ? (total_reactions - lastSnap.total_reactions) : 0;
     const deltaCmt = lastSnap ? (total_comments - lastSnap.total_comments) : 0;
     const deltaSh = lastSnap ? (total_shares - lastSnap.total_shares) : 0;
@@ -1719,14 +1787,47 @@ async function handleApiRoute(pathname, method, request, env, url) {
     return jsonResponse({ success: true, target_id, snapshot_id: snapRes.meta?.last_row_id });
   }
 
-  // GET /api/health
+  // GET /api/health - Dynamic, Honest System Health & Data Integrity Check
   if (pathname === '/api/health' && method === 'GET') {
+    const totalTargets = (await db.prepare('SELECT COUNT(*) as count FROM monitored_targets').first())?.count || 0;
+    const activeTargets = (await db.prepare("SELECT COUNT(*) as count FROM monitored_targets WHERE status = 'ACTIVE'").first())?.count || 0;
+    const failingTargets = (await db.prepare("SELECT COUNT(*) as count FROM monitored_targets WHERE status IN ('ERROR', 'INACCESSIBLE', 'NEEDS_AUTH', 'RATE_LIMITED')").first())?.count || 0;
+    
+    const activeAccounts = (await db.prepare("SELECT COUNT(*) as count FROM accounts WHERE status = 'ACTIVE'").first())?.count || 0;
+    const checkpointAccounts = (await db.prepare("SELECT COUNT(*) as count FROM accounts WHERE status IN ('CHECKPOINT', 'NEEDS_REAUTH', 'EXPIRED')").first())?.count || 0;
+    
+    const latestSnap = await db.prepare("SELECT observed_at FROM snapshots ORDER BY observed_at DESC LIMIT 1").first();
+    const lastSnapshotAgeSec = latestSnap?.observed_at ? Math.floor((Date.now() - new Date(latestSnap.observed_at).getTime()) / 1000) : null;
+
+    let overallStatus = 'HEALTHY';
+    let message = 'Hệ thống giám sát vận hành bình thường';
+
+    if (totalTargets > 0 && activeAccounts === 0) {
+      overallStatus = 'CRITICAL_NO_AUTH';
+      message = 'Toàn bộ tài khoản Cookie/Meta đã hết hạn hoặc checkpoint. Cần nạp tài khoản mới.';
+    } else if (totalTargets > 0 && failingTargets === totalTargets) {
+      overallStatus = 'UNHEALTHY';
+      message = 'Tất cả bài viết đang gặp lỗi kết nối hoặc thiếu quyền truy cập.';
+    } else if (failingTargets > 0 || checkpointAccounts > 0) {
+      overallStatus = 'DEGRADED';
+      message = `Hệ thống ghi nhận ${failingTargets} bài viết lỗi hoặc ${checkpointAccounts} tài khoản cần xác thực lại.`;
+    }
+
     return jsonResponse({
-      status: 'HEALTHY',
-      platform: 'Serverless Edge 24/7',
-      engine: 'Hybrid (Meta Graph API + mbasic Scraper)',
+      status: overallStatus,
+      message,
+      integrity: {
+        totalTargets,
+        activeTargets,
+        failingTargets,
+        activeAccounts,
+        checkpointAccounts,
+        lastSnapshotAt: latestSnap?.observed_at || null,
+        lastSnapshotAgeSec
+      },
+      platform: 'Cloudflare Edge 24/7',
       timestamp: new Date().toISOString()
-    });
+    }, (overallStatus === 'CRITICAL_NO_AUTH' || overallStatus === 'UNHEALTHY') ? 503 : 200);
   }
 
   return jsonResponse({ error: 'Endpoint not found' }, 404);
@@ -1901,10 +2002,18 @@ async function syncViaGraphApi(target, token, env, graphVersion) {
   }
 
   if (lastSnap && deltaRx >= 50) {
-    await db.prepare(`
-      INSERT INTO alerts (target_id, alert_type, metric_name, old_val, new_val, delta, threshold, severity, message, detected_at)
-      VALUES (?, 'REACTION_SPIKE', 'reactions', ?, ?, ?, 50, 'WARNING', 'Lượt cảm xúc tăng vọt (+${deltaRx}) trên Edge.', ?)
-    `).bind(target.id, lastSnap.total_reactions, totalReactions, deltaRx, now).run();
+    await recordAlertWithCooldown(db, {
+      targetId: target.id,
+      alertType: 'REACTION_SPIKE',
+      metricName: 'reactions',
+      oldVal: lastSnap.total_reactions,
+      newVal: totalReactions,
+      delta: deltaRx,
+      threshold: 50,
+      severity: 'WARNING',
+      message: `Lượt cảm xúc tăng vọt (+${deltaRx}) trên Edge.`,
+      now
+    }, 30);
   }
 }
 
@@ -1958,10 +2067,18 @@ async function syncViaMbasic(target, env, masterKey) {
   // Checkpoint or Login Wall Detection
   if (isCheckpointOrLogin(response.url, html)) {
     await db.prepare("UPDATE accounts SET status = 'NEEDS_REAUTH', error_log = 'Cookie bị checkpoint hoặc hết hạn đăng nhập' WHERE id = ?").bind(cookieAcc.id).run();
-    await db.prepare(`
-      INSERT INTO alerts (target_id, alert_type, metric_name, old_val, new_val, delta, threshold, severity, message, detected_at)
-      VALUES (?, 'AUTH_LOST', 'cookie', 1, 0, -1, 0, 'CRITICAL', 'Cookie nick phụ (${cookieAcc.name}) bị checkpoint hoặc mất phiên. Cần nạp cookie mới.', ?)
-    `).bind(target.id, now).run();
+    await recordAlertWithCooldown(db, {
+      targetId: target.id,
+      alertType: 'AUTH_LOST',
+      metricName: 'cookie',
+      oldVal: 1,
+      newVal: 0,
+      delta: -1,
+      threshold: 0,
+      severity: 'CRITICAL',
+      message: `Cookie nick phụ (${cookieAcc.name}) bị checkpoint hoặc mất phiên. Cần nạp cookie mới.`,
+      now
+    }, 30);
     throw new Error(`Cookie account #${cookieAcc.id} bị checkpoint`);
   }
 
@@ -2032,6 +2149,28 @@ async function syncViaMbasic(target, env, masterKey) {
 
   // Get previous snapshot
   const lastSnap = await db.prepare('SELECT * FROM snapshots WHERE target_id = ? ORDER BY observed_at DESC LIMIT 1').bind(target.id).first();
+
+  // --- Data Quality Gate: Guard against zero metric drop anomalies & corrupted snapshots ---
+  if (lastSnap && (lastSnap.total_reactions || 0) > 0 && parsed.totalReactions === 0 && parsed.totalComments === 0) {
+    await db.prepare(`
+      UPDATE monitored_targets 
+      SET last_checked_at = ?, 
+          last_error = 'Dữ liệu cào bị rỗng (Quality Gate bảo lưu baseline số liệu)'
+      WHERE id = ?
+    `).bind(now, target.id).run();
+    return;
+  }
+
+  if (lastSnap && lastSnap.total_reactions > 20 && parsed.totalReactions < lastSnap.total_reactions * 0.4) {
+    await db.prepare(`
+      UPDATE monitored_targets 
+      SET last_checked_at = ?, 
+          last_error = 'Phát hiện số liệu biến động giảm đột ngột bất thường (bảo lưu snapshot)'
+      WHERE id = ?
+    `).bind(now, target.id).run();
+    return;
+  }
+
   const deltaRx = lastSnap ? (parsed.totalReactions - lastSnap.total_reactions) : 0;
   const deltaCmt = lastSnap ? (parsed.totalComments - lastSnap.total_comments) : 0;
   const deltaSh = lastSnap ? (parsed.totalShares - lastSnap.total_shares) : 0;
@@ -2075,11 +2214,19 @@ async function syncViaMbasic(target, env, masterKey) {
   // Update Cookie Account last sync
   await db.prepare('UPDATE accounts SET last_sync_at = ? WHERE id = ?').bind(now, cookieAcc.id).run();
 
-  // Anomaly Spike Alert Detection
+  // Anomaly Spike Alert Detection (Deduplicated with 30-min window)
   if (lastSnap && deltaRx >= 50) {
-    await db.prepare(`
-      INSERT INTO alerts (target_id, alert_type, metric_name, old_val, new_val, delta, threshold, severity, message, detected_at)
-      VALUES (?, 'REACTION_SPIKE', 'reactions', ?, ?, ?, 50, 'WARNING', 'Lượt cảm xúc tăng vọt (+${deltaRx}) trên mbasic Edge.', ?)
-    `).bind(target.id, lastSnap.total_reactions, parsed.totalReactions, deltaRx, now).run();
+    await recordAlertWithCooldown(db, {
+      targetId: target.id,
+      alertType: 'REACTION_SPIKE',
+      metricName: 'reactions',
+      oldVal: lastSnap.total_reactions,
+      newVal: parsed.totalReactions,
+      delta: deltaRx,
+      threshold: 50,
+      severity: 'WARNING',
+      message: `Lượt cảm xúc tăng vọt (+${deltaRx}) trên mbasic Edge.`,
+      now
+    }, 30);
   }
 }
