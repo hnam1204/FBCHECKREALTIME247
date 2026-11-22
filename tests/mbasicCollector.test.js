@@ -132,22 +132,40 @@ test('mbasicCollector: parseComments extracts comment content and user profile',
   assert.equal(comments[0].interactionType, 'COMMENT');
 });
 
-test('mbasicCollector: parseMbasicReactors extracts profiles of users who reacted', async () => {
-  const { parseMbasicReactors } = await import('../src/collector/mbasicCollector.js');
+test('mbasicCollector: parseMbasicReactors extracts profiles of users who reacted with all 7 reaction types and clean profileUrl', async () => {
+  const { parseMbasicReactors, mapAltToReactionType } = await import('../src/collector/mbasicCollector.js');
+  
+  // Test mapAltToReactionType
+  assert.equal(mapAltToReactionType('Thích'), 'LIKE');
+  assert.equal(mapAltToReactionType('Yêu thích'), 'LOVE');
+  assert.equal(mapAltToReactionType('Thương thương'), 'CARE');
+  assert.equal(mapAltToReactionType('Haha'), 'HAHA');
+  assert.equal(mapAltToReactionType('Wow'), 'WOW');
+  assert.equal(mapAltToReactionType('Buồn'), 'SAD');
+  assert.equal(mapAltToReactionType('Phẫn nộ'), 'ANGRY');
+
   const ufiHtml = `
     <table>
       <tr>
-        <td><img src="https://fbcdn.net/avatar1.jpg" /></td>
-        <td><a href="/profile.php?id=1000111222"><strong>Trần Thị C</strong></a></td>
+        <td><img src="https://fbcdn.net/avatar1.jpg" /><img alt="Yêu thích" src="/love.png" /></td>
+        <td><a href="/profile.php?id=1000111222&amp;refid=52"><strong>Trần Thị C</strong></a></td>
+      </tr>
+      <tr>
+        <td><img src="https://fbcdn.net/avatar2.jpg" /><img alt="Thương thương" src="/care.png" /></td>
+        <td><a href="/nguyenvand?refid=52"><strong>Nguyễn Văn D</strong></a></td>
       </tr>
     </table>
   `;
   const reactors = parseMbasicReactors(ufiHtml);
-  assert.equal(reactors.length, 1);
+  assert.equal(reactors.length, 2);
   assert.equal(reactors[0].displayName, 'Trần Thị C');
   assert.equal(reactors[0].fbUserId, '1000111222');
-  assert.equal(reactors[0].avatarUrl, 'https://fbcdn.net/avatar1.jpg');
-  assert.equal(reactors[0].interactionType, 'REACTION');
+  assert.equal(reactors[0].reactionType, 'LOVE');
+  assert.equal(reactors[0].profileUrl, 'https://www.facebook.com/profile.php?id=1000111222');
+
+  assert.equal(reactors[1].displayName, 'Nguyễn Văn D');
+  assert.equal(reactors[1].reactionType, 'CARE');
+  assert.equal(reactors[1].profileUrl, 'https://www.facebook.com/nguyenvand');
 });
 
 

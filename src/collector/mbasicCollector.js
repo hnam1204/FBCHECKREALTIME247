@@ -323,22 +323,30 @@ export function parseComments(html) {
 
   // 2. Mobile web / Bloks comments with aria-label & avatar
   if (comments.length === 0) {
-    const bloksRegex = /aria-label=["']Ảnh đại diện của ([^"']+)["'][\s\S]{0,600}?<img[^>]+src=["'](https:\/\/scontent[^"'\s\\]*(?:t39\.30808-1|t1\.30497-1)[^"'\s\\]*)["'][\s\S]{0,1400}?<span[^>]*role=["']link["'][^>]*>([\s\S]*?)<\/span>[\s\S]{0,800}?<div dir=["']auto["'][^>]*>([\s\S]*?)<\/div>/gi;
+    const bloksRegex = /(?:<a[^>]+href=["']([^"']+)["'][^>]*>[\s\S]{0,300}?)?aria-label=["']Ảnh đại diện của ([^"']+)["'][\s\S]{0,600}?<img[^>]+src=["'](https:\/\/scontent[^"'\s\\]*(?:t39\.30808-1|t1\.30497-1)[^"'\s\\]*)["'][\s\S]{0,1400}?<span[^>]*role=["']link["'][^>]*>([\s\S]*?)<\/span>[\s\S]{0,800}?<div dir=["']auto["'][^>]*>([\s\S]*?)<\/div>/gi;
     for (const m of html.matchAll(bloksRegex)) {
-      const dName = m[1].trim();
-      const pic = m[2].replace(/&amp;/g, '&');
-      const text = m[4].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      const rawHref = m[1];
+      const dName = m[2].trim();
+      const pic = m[3].replace(/&amp;/g, '&');
+      const text = m[5].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
       if (dName && text && !text.includes('Công khai') && !text.includes('bình luận')) {
+        let pUrl = null;
+        let fbUid = null;
+        if (rawHref) {
+          const idM = rawHref.match(/[?&]id=(\d+)/) || rawHref.match(/\/([a-zA-Z0-9.]+)(?:\?|$)/);
+          if (idM) fbUid = idM[1];
+          pUrl = rawHref.startsWith('http') ? rawHref : `https://www.facebook.com${rawHref.startsWith('/') ? '' : '/'}${rawHref}`;
+        }
         comments.push({
           displayName: dName,
-          fbUserId: null,
-          profileUrl: null,
+          fbUserId: fbUid,
+          profileUrl: pUrl,
           avatarUrl: pic,
           commentText: text,
           interactionType: 'COMMENT'
         });
       }
-      if (comments.length >= 20) break;
+      if (comments.length >= 30) break;
     }
   }
 
@@ -369,6 +377,23 @@ export function parseComments(html) {
 }
 
 /**
+ * Helper to map Facebook reaction names / image alt to standard reaction type
+ * Supported 7 reactions: LIKE, LOVE, CARE, HAHA, WOW, SAD, ANGRY
+ */
+export function mapAltToReactionType(altText, fallback = 'LIKE') {
+  if (!altText || typeof altText !== 'string') return fallback;
+  const a = altText.toLowerCase();
+  if (a.includes('yêu') || a.includes('love') || a.includes('tim')) return 'LOVE';
+  if (a.includes('thương') || a.includes('care') || a.includes('ôm')) return 'CARE';
+  if (a.includes('haha') || a.includes('cười')) return 'HAHA';
+  if (a.includes('wow') || a.includes('ngạc nhiên')) return 'WOW';
+  if (a.includes('buồn') || a.includes('sad')) return 'SAD';
+  if (a.includes('phẫn nộ') || a.includes('angry') || a.includes('giận')) return 'ANGRY';
+  if (a.includes('thích') || a.includes('like')) return 'LIKE';
+  return fallback;
+}
+
+/**
  * Extracts list of reactors from Comet JSON
  * @param {string} html
  * @returns {Array<{displayName: string, fbUserId: string|null, profileUrl: string|null, avatarUrl: string|null, interactionType: string, reactionType: string, commentText: null}>}
@@ -377,25 +402,52 @@ export function parseReactors(html) {
   const reactors = [];
   if (!html || typeof html !== 'string') return reactors;
 
-  // Comet actors / reactors
-  const cometLikersRegex = /"actors"\s*:\s*\[\s*\{\s*"id"\s*:\s*"([^"]+)",\s*"name"\s*:\s*"([^"]+)"/gi;
-  for (const m of html.matchAll(cometLikersRegex)) {
+  // 1. Comet actors / feedback reactors with explicit reaction type
+  const cometReactionRegex = /"actors"\s*:\s*\[\s*\{\s*"id"\s*:\s*"([^"]+)",\s*"name"\s*:\s*"([^"]+)"(?:[^}]*?"profile_picture"\s*:\s*\{\s*"uri"\s*:\s*"([^"]+)"\})?[\s\S]{0,300}?(?:"reaction_type"|"feedback_reaction_info"\s*:\s*\{\s*"key")\s*:\s*"([A-Z]+)"/gi;
+  for (const m of html.matchAll(cometReactionRegex)) {
     try {
       const id = m[1];
       const name = JSON.parse(`"${m[2]}"`);
+      let pic = m[3] ? m[3].replace(/\\/g, '') : null;
+      if (!pic && id) pic = `https://graph.facebook.com/${id}/picture?type=normal`;
+      const rawR = (m[4] || '').toUpperCase();
+      const rType = ['LIKE', 'LOVE', 'CARE', 'HAHA', 'WOW', 'SAD', 'ANGRY'].includes(rawR) ? rawR : 'LIKE';
       if (name && !reactors.some(r => r.displayName === name)) {
         reactors.push({
           displayName: name,
           fbUserId: id,
           profileUrl: `https://www.facebook.com/${id}`,
-          avatarUrl: id ? `https://graph.facebook.com/${id}/picture?type=normal` : null,
+          avatarUrl: pic,
           interactionType: 'REACTION',
-          reactionType: 'LIKE',
+          reactionType: rType,
           commentText: null
         });
       }
     } catch {}
-    if (reactors.length >= 15) break;
+    if (reactors.length >= 30) break;
+  }
+
+  // 2. Fallback to general Comet actors
+  if (reactors.length === 0) {
+    const cometLikersRegex = /"actors"\s*:\s*\[\s*\{\s*"id"\s*:\s*"([^"]+)",\s*"name"\s*:\s*"([^"]+)"/gi;
+    for (const m of html.matchAll(cometLikersRegex)) {
+      try {
+        const id = m[1];
+        const name = JSON.parse(`"${m[2]}"`);
+        if (name && !reactors.some(r => r.displayName === name)) {
+          reactors.push({
+            displayName: name,
+            fbUserId: id,
+            profileUrl: `https://www.facebook.com/${id}`,
+            avatarUrl: id ? `https://graph.facebook.com/${id}/picture?type=normal` : null,
+            interactionType: 'REACTION',
+            reactionType: 'LIKE',
+            commentText: null
+          });
+        }
+      } catch {}
+      if (reactors.length >= 20) break;
+    }
   }
 
   return reactors;
@@ -404,50 +456,110 @@ export function parseReactors(html) {
 /**
  * Parses mbasic UFI reaction browser HTML page to extract profiles of reactors
  * @param {string} html
+ * @param {string} defaultReactionType Fallback reaction type (LIKE, LOVE, CARE, HAHA, WOW, SAD, ANGRY)
  * @returns {Array<{displayName: string, fbUserId: string|null, profileUrl: string|null, avatarUrl: string|null, interactionType: string, reactionType: string, commentText: null}>}
  */
-export function parseMbasicReactors(html) {
+export function parseMbasicReactors(html, defaultReactionType = 'LIKE') {
   const reactors = [];
   if (!html || typeof html !== 'string') return reactors;
 
-  const rowRegex = /<tr[^>]*>[\s\S]*?<img[^>]+src="([^"]+)"[^>]*>[\s\S]*?<a[^>]+href="([^"]+)"[^>]*>[\s\S]*?<strong[^>]*>([\s\S]*?)<\/strong>[\s\S]*?<\/tr>/gi;
+  // 1. Table row layout (<tr...>)
+  const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
   for (const m of html.matchAll(rowRegex)) {
-    const avatar = m[1].replace(/&amp;/g, '&');
-    const href = m[2];
-    const name = m[3].replace(/<[^>]+>/g, '').trim();
-    if (name && !name.includes('Quay lại') && !name.includes('Tất cả')) {
-      const idMatch = href.match(/[?&]id=(\d+)/) || href.match(/\/([a-zA-Z0-9.]+)/);
-      reactors.push({
-        displayName: name,
-        fbUserId: idMatch ? idMatch[1] : null,
-        profileUrl: `https://www.facebook.com${href.startsWith('/') ? '' : '/'}${href}`,
-        avatarUrl: avatar.startsWith('http') ? avatar : null,
-        interactionType: 'REACTION',
-        reactionType: 'LIKE',
-        commentText: null
-      });
+    const trContent = m[1];
+    const aMatch = trContent.match(/<a[^>]+href="([^"]+)"[^>]*>[\s\S]*?<strong[^>]*>([\s\S]*?)<\/strong>[\s\S]*?<\/a>/i) ||
+                   trContent.match(/<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+    if (!aMatch) continue;
+
+    const rawHref = aMatch[1];
+    const rawName = aMatch[2].replace(/<[^>]+>/g, '').trim();
+    if (!rawName || rawName.includes('Quay lại') || rawName.includes('Tất cả') || rawName.includes('Xem thêm')) continue;
+
+    // Detect exact reaction type from image alt / aria-label
+    let reactionType = defaultReactionType;
+    const imgMatches = trContent.matchAll(/<img[^>]+(?:alt|aria-label)=["']([^"']+)["']/gi);
+    for (const imgM of imgMatches) {
+      const detected = mapAltToReactionType(imgM[1], null);
+      if (detected) {
+        reactionType = detected;
+        break;
+      }
     }
-    if (reactors.length >= 20) break;
+
+    // Extract avatar
+    let avatarUrl = null;
+    const avatarMatch = trContent.match(/<img[^>]+src=["'](https:\/\/[^"'\s]+(?:fbcdn\.net|facebook\.com)[^"'\s]*)["']/i);
+    if (avatarMatch) {
+      avatarUrl = avatarMatch[1].replace(/&amp;/g, '&');
+    }
+
+    // Clean profile URL
+    let cleanHref = rawHref.replace(/&amp;/g, '&');
+    let fbUserId = null;
+    const idMatch = cleanHref.match(/[?&]id=(\d+)/) || cleanHref.match(/\/profile\.php\?id=(\d+)/);
+    if (idMatch) {
+      fbUserId = idMatch[1];
+      cleanHref = `/profile.php?id=${fbUserId}`;
+    } else {
+      const userMatch = cleanHref.match(/\/([a-zA-Z0-9.]+)(?:\?|$)/);
+      if (userMatch && !['profile.php', 'story.php', 'photo.php', 'browse'].includes(userMatch[1])) {
+        fbUserId = userMatch[1];
+        cleanHref = `/${userMatch[1]}`;
+      }
+    }
+
+    const profileUrl = `https://www.facebook.com${cleanHref.startsWith('/') ? '' : '/'}${cleanHref}`;
+    if (!avatarUrl && fbUserId && /^\d+$/.test(fbUserId)) {
+      avatarUrl = `https://graph.facebook.com/${fbUserId}/picture?type=normal`;
+    }
+
+    reactors.push({
+      displayName: rawName,
+      fbUserId,
+      profileUrl,
+      avatarUrl,
+      interactionType: 'REACTION',
+      reactionType,
+      commentText: null
+    });
+
+    if (reactors.length >= 50) break;
   }
 
+  // 2. List item layout (<li...>)
   if (reactors.length === 0) {
-    const linkRegex = /<li[^>]*>[\s\S]*?<a[^>]+href="([^"]+)"[^>]*>[\s\S]*?<strong[^>]*>([\s\S]*?)<\/strong>[\s\S]*?<\/li>/gi;
-    for (const m of html.matchAll(linkRegex)) {
-      const href = m[1];
-      const name = m[2].replace(/<[^>]+>/g, '').trim();
-      if (name) {
-        const idMatch = href.match(/[?&]id=(\d+)/) || href.match(/\/([a-zA-Z0-9.]+)/);
-        reactors.push({
-          displayName: name,
-          fbUserId: idMatch ? idMatch[1] : null,
-          profileUrl: `https://www.facebook.com${href.startsWith('/') ? '' : '/'}${href}`,
-          avatarUrl: null,
-          interactionType: 'REACTION',
-          reactionType: 'LIKE',
-          commentText: null
-        });
+    const liRegex = /<li[^>]*>([\s\S]*?)<\/li>/gi;
+    for (const m of html.matchAll(liRegex)) {
+      const liContent = m[1];
+      const aMatch = liContent.match(/<a[^>]+href="([^"]+)"[^>]*>[\s\S]*?<strong[^>]*>([\s\S]*?)<\/strong>[\s\S]*?<\/a>/i) ||
+                     liContent.match(/<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+      if (!aMatch) continue;
+
+      const rawHref = aMatch[1];
+      const rawName = aMatch[2].replace(/<[^>]+>/g, '').trim();
+      if (!rawName || rawName.includes('Quay lại') || rawName.includes('Tất cả')) continue;
+
+      let reactionType = defaultReactionType;
+      const imgM = liContent.match(/<img[^>]+(?:alt|aria-label)=["']([^"']+)["']/i);
+      if (imgM) {
+        reactionType = mapAltToReactionType(imgM[1], defaultReactionType);
       }
-      if (reactors.length >= 20) break;
+
+      let fbUserId = null;
+      const idMatch = rawHref.match(/[?&]id=(\d+)/);
+      if (idMatch) fbUserId = idMatch[1];
+
+      reactors.push({
+        displayName: rawName,
+        fbUserId,
+        profileUrl: `https://www.facebook.com${rawHref.startsWith('/') ? '' : '/'}${rawHref.replace(/&amp;/g, '&')}`,
+        avatarUrl: fbUserId && /^\d+$/.test(fbUserId) ? `https://graph.facebook.com/${fbUserId}/picture?type=normal` : null,
+        interactionType: 'REACTION',
+        reactionType,
+        commentText: null
+      });
+
+      if (reactors.length >= 50) break;
     }
   }
 

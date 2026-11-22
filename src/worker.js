@@ -513,7 +513,10 @@ async function handleApiRoute(pathname, method, request, env, url) {
       latestSnapshot = await db.prepare('SELECT * FROM snapshots WHERE target_id = ? ORDER BY id DESC LIMIT 1').bind(id).first();
     }
 
-    const interactedAccounts = (await db.prepare('SELECT * FROM accounts_interacted WHERE target_id = ? AND observed_at >= ? ORDER BY observed_at DESC LIMIT 50').bind(id, cutoffTime).all())?.results || [];
+    let interactedAccounts = (await db.prepare('SELECT * FROM accounts_interacted WHERE target_id = ? AND observed_at >= ? ORDER BY observed_at DESC LIMIT 50').bind(id, cutoffTime).all())?.results || [];
+    if (interactedAccounts.length === 0) {
+      interactedAccounts = (await db.prepare('SELECT * FROM accounts_interacted WHERE target_id = ? ORDER BY observed_at DESC LIMIT 50').bind(id).all())?.results || [];
+    }
     const alertConfig = (await db.prepare('SELECT * FROM target_alert_configs WHERE target_id = ?').bind(id).first()) || {};
     const recentAlerts = (await db.prepare('SELECT * FROM alerts WHERE target_id = ? ORDER BY detected_at DESC LIMIT 10').bind(id).all())?.results || [];
 
@@ -1296,17 +1299,22 @@ async function handleApiRoute(pathname, method, request, env, url) {
 
     // Insert interacted accounts with deduplication
     if (Array.isArray(interacted_accounts) && interacted_accounts.length > 0) {
-      for (const item of interacted_accounts.slice(0, 30)) {
+      for (const item of interacted_accounts.slice(0, 50)) {
         const dName = item.display_name || item.displayName || 'Người dùng Facebook';
         const iType = item.interaction_type || item.interactionType || 'COMMENT';
+        const rType = item.reaction_type || item.reactionType || null;
         const cText = item.comment_text || item.commentText || null;
+        const pUrl = item.profile_url || item.profileUrl || null;
+        const aUrl = item.avatar_url || item.avatarUrl || null;
+        const fbUid = item.fb_user_id || item.fbUserId || null;
 
         const existing = await db.prepare(`
           SELECT id FROM accounts_interacted 
           WHERE target_id = ? AND display_name = ? AND interaction_type = ? 
             AND (comment_text = ? OR (comment_text IS NULL AND ? IS NULL))
+            AND (reaction_type = ? OR (reaction_type IS NULL AND ? IS NULL))
           LIMIT 1
-        `).bind(target_id, dName, iType, cText, cText).first();
+        `).bind(target_id, dName, iType, cText, cText, rType, rType).first();
 
         if (!existing) {
           await db.prepare(`
@@ -1316,15 +1324,23 @@ async function handleApiRoute(pathname, method, request, env, url) {
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'FULL')
           `).bind(
             target_id,
-            item.fb_user_id || item.fbUserId || null,
+            fbUid,
             dName,
-            item.profile_url || item.profileUrl || null,
-            item.avatar_url || item.avatarUrl || null,
+            pUrl,
+            aUrl,
             iType,
-            item.reaction_type || item.reactionType || null,
+            rType,
             cText,
             now
           ).run();
+        } else if (pUrl || aUrl || fbUid) {
+          await db.prepare(`
+            UPDATE accounts_interacted SET
+              profile_url = COALESCE(?, profile_url),
+              avatar_url = COALESCE(?, avatar_url),
+              fb_user_id = COALESCE(?, fb_user_id)
+            WHERE id = ?
+          `).bind(pUrl, aUrl, fbUid, existing.id).run();
         }
       }
     }

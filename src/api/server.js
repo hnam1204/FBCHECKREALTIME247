@@ -399,12 +399,21 @@ function createServer() {
     }
 
     // Identifiable accounts interacted
-    const interactedAccounts = db.prepare(`
+    let interactedAccounts = db.prepare(`
       SELECT * FROM accounts_interacted 
       WHERE target_id = ? AND observed_at >= ?
       ORDER BY observed_at DESC 
       LIMIT 50
     `).all(id, cutoffTime);
+
+    if (!interactedAccounts || interactedAccounts.length === 0) {
+      interactedAccounts = db.prepare(`
+        SELECT * FROM accounts_interacted 
+        WHERE target_id = ?
+        ORDER BY observed_at DESC 
+        LIMIT 50
+      `).all(id);
+    }
 
     const alertConfig = alertEngine.getAlertConfig(id);
     const recentAlerts = db.prepare('SELECT * FROM alerts WHERE target_id = ? ORDER BY detected_at DESC LIMIT 10').all(id);

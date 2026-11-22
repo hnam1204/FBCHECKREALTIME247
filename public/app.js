@@ -1383,17 +1383,26 @@ function filterDetailAccounts() {
   const searchInput = document.getElementById('detailAccountSearchInput');
   const typeFilter = document.getElementById('detailAccountTypeFilter');
   const term = searchInput ? searchInput.value.toLowerCase().trim() : '';
-  const type = typeFilter ? typeFilter.value.toUpperCase() : '';
+  const filterVal = typeFilter ? typeFilter.value.toUpperCase() : '';
 
   let filtered = currentDetailAccounts || [];
-  if (type) {
-    filtered = filtered.filter(a => (a.interaction_type || '').toUpperCase() === type);
+
+  if (filterVal) {
+    if (filterVal === 'COMMENT') {
+      filtered = filtered.filter(a => (a.interaction_type || '').toUpperCase() === 'COMMENT');
+    } else if (filterVal === 'REACTION') {
+      filtered = filtered.filter(a => (a.interaction_type || '').toUpperCase() === 'REACTION');
+    } else if (['LIKE', 'LOVE', 'CARE', 'HAHA', 'WOW', 'SAD', 'ANGRY'].includes(filterVal)) {
+      filtered = filtered.filter(a => (a.reaction_type || '').toUpperCase() === filterVal);
+    }
   }
+
   if (term) {
     filtered = filtered.filter(a => {
       const name = (a.display_name || '').toLowerCase();
       const text = (a.comment_text || '').toLowerCase();
-      return name.includes(term) || text.includes(term);
+      const url = (a.profile_url || '').toLowerCase();
+      return name.includes(term) || text.includes(term) || url.includes(term);
     });
   }
 
@@ -1403,41 +1412,99 @@ function filterDetailAccounts() {
 
   if (!container) return;
   if (filtered.length === 0) {
-    container.innerHTML = '<div class="text-txt-sub italic py-4 text-center">Không có tương tác nào khớp với bộ lọc hoặc bài viết chưa có dữ liệu tương tác bóc tách.</div>';
+    container.innerHTML = '<div class="text-txt-sub italic py-6 text-center">Chưa có bình luận hoặc tài khoản tương tác nào được bóc tách phù hợp với bộ lọc. Bấm "Đồng bộ quét tài khoản" để cập nhật.</div>';
     return;
   }
 
   container.innerHTML = filtered.map(a => {
     const isComment = (a.interaction_type || '').toUpperCase() === 'COMMENT';
-    const typeBadge = isComment
-      ? '<span class="px-1.5 py-0.5 rounded text-[10px] bg-brand-blue/20 text-brand-cyan border border-brand-cyan/20 inline-flex items-center gap-1 font-medium"><svg class="w-3 h-3 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg><span>Bình luận</span></span>'
-      : `<span class="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 inline-flex items-center gap-1 font-medium"><svg class="w-3 h-3 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5"></path></svg><span>Cảm xúc (${a.reaction_type || 'Like'})</span></span>`;
-    
-    const profileLink = a.profile_url
-      ? `<a href="${a.profile_url}" target="_blank" class="font-semibold text-txt-title hover:text-brand-cyan transition">${a.display_name}</a>`
-      : `<span class="font-semibold text-txt-title">${a.display_name}</span>`;
+    const reactionType = (a.reaction_type || 'LIKE').toUpperCase();
 
-    const avatar = a.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=60&h=60&fit=crop';
+    // Styled badge according to reaction type or comment
+    let badgeHtml = '';
+    if (isComment) {
+      badgeHtml = `<span class="px-2 py-0.5 rounded text-[10px] bg-brand-blue/20 text-brand-cyan border border-brand-cyan/20 inline-flex items-center gap-1 font-semibold shrink-0">
+        <svg class="w-3 h-3 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+        <span>Bình luận</span>
+      </span>`;
+    } else {
+      const reactionStyles = {
+        LIKE: { bg: 'bg-blue-500/10 text-blue-400 border-blue-500/20', label: 'Thích (LIKE)', icon: '👍' },
+        LOVE: { bg: 'bg-rose-500/10 text-rose-400 border-rose-500/20', label: 'Yêu thích (LOVE)', icon: '❤️' },
+        CARE: { bg: 'bg-amber-500/10 text-amber-400 border-amber-500/20', label: 'Thương thương (CARE)', icon: '🥰' },
+        HAHA: { bg: 'bg-amber-500/10 text-amber-400 border-amber-500/20', label: 'Haha (HAHA)', icon: '😆' },
+        WOW: { bg: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20', label: 'Wow (WOW)', icon: '😮' },
+        SAD: { bg: 'bg-sky-500/10 text-sky-400 border-sky-500/20', label: 'Buồn (SAD)', icon: '😢' },
+        ANGRY: { bg: 'bg-rose-600/10 text-rose-500 border-rose-600/20', label: 'Phẫn nộ (ANGRY)', icon: '😡' }
+      };
+      const rStyle = reactionStyles[reactionType] || reactionStyles.LIKE;
+      badgeHtml = `<span class="px-2 py-0.5 rounded text-[10px] ${rStyle.bg} border inline-flex items-center gap-1 font-semibold shrink-0">
+        <span>${rStyle.icon}</span>
+        <span>${rStyle.label}</span>
+      </span>`;
+    }
+
+    // Personal profile URL link
+    const profileUrl = a.profile_url || (a.fb_user_id ? `https://www.facebook.com/${a.fb_user_id}` : null);
+    const profileLink = profileUrl
+      ? `<a href="${profileUrl}" target="_blank" rel="noopener noreferrer" class="font-semibold text-txt-title hover:text-brand-cyan transition inline-flex items-center gap-1 group truncate" title="Mở trang cá nhân Facebook">
+          <span class="truncate">${a.display_name}</span>
+          <svg class="w-3 h-3 text-txt-sub group-hover:text-brand-cyan transition shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+        </a>`
+      : `<span class="font-semibold text-txt-title truncate">${a.display_name}</span>`;
+
+    const avatar = a.avatar_url || (a.fb_user_id && /^\d+$/.test(a.fb_user_id) ? `https://graph.facebook.com/${a.fb_user_id}/picture?type=normal` : 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=60&h=60&fit=crop');
+
+    // Comment content bubble
     const commentBody = a.comment_text
-      ? `<p class="text-xs text-txt-body mt-1 bg-surface-elevated/60 p-2 rounded-lg border border-surface-border break-words">${a.comment_text}</p>`
+      ? `<div class="mt-1.5 bg-surface-elevated/70 p-2.5 rounded-xl border border-surface-border text-xs text-txt-body break-words">
+          <span class="text-[10px] text-txt-sub font-mono block mb-0.5">Nội dung bình luận:</span>
+          <span>${a.comment_text}</span>
+        </div>`
       : '';
 
+    const directUrlLink = profileUrl
+      ? `<a href="${profileUrl}" target="_blank" rel="noopener noreferrer" class="text-[10px] text-brand-cyan hover:underline truncate block mt-0.5 font-mono max-w-sm" title="${profileUrl}">${profileUrl}</a>`
+      : '<span class="text-[10px] text-txt-sub italic mt-0.5 block">Chưa công khai profile link</span>';
+
     return `
-      <div class="py-2.5 flex items-start gap-3 hover:bg-surface-elevated/30 px-2 rounded-xl transition">
-        <img src="${avatar}" referrerpolicy="no-referrer" class="w-8 h-8 rounded-full object-cover bg-gray-800 border border-surface-border shrink-0" onerror="this.onerror=null;this.src='https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=60&h=60&fit=crop'">
+      <div class="py-3 flex items-start gap-3 hover:bg-surface-elevated/30 px-2 rounded-xl transition">
+        <img src="${avatar}" referrerpolicy="no-referrer" class="w-9 h-9 rounded-full object-cover bg-surface-border border border-surface-border shrink-0" onerror="this.onerror=null;this.src='https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=60&h=60&fit=crop'">
         <div class="flex-1 min-w-0">
-          <div class="flex items-center justify-between gap-2">
-            <div class="flex items-center gap-2 truncate">
+          <div class="flex flex-wrap items-center justify-between gap-1">
+            <div class="flex flex-wrap items-center gap-2 min-w-0">
               ${profileLink}
-              ${typeBadge}
+              ${badgeHtml}
             </div>
-            <span class="text-[10px] text-txt-muted shrink-0">${new Date(a.observed_at).toLocaleTimeString('vi-VN')}</span>
+            <span class="text-[10px] text-txt-sub font-mono shrink-0">${a.observed_at ? formatRelativeTime(a.observed_at) : ''}</span>
           </div>
+          ${directUrlLink}
           ${commentBody}
         </div>
       </div>
     `;
   }).join('');
+}
+
+async function syncDetailTargetNow() {
+  if (!currentDetailTargetId) return;
+  const btn = document.getElementById('btnSyncDetailTarget');
+  const icon = btn ? btn.querySelector('svg') : null;
+  if (icon) icon.classList.add('animate-spin');
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await fetch(`/api/targets/${currentDetailTargetId}/sync-now`, { method: 'POST' });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    await loadTargetDetail(currentDetailTargetId);
+    showNoticeModal({ title: 'Đã gửi lệnh quét', message: 'Hệ thống đang tiến hành bóc tách tài khoản tương tác và bình luận mới nhất.', type: 'success' });
+  } catch (e) {
+    showNoticeModal({ title: 'Lỗi', message: e.message, type: 'error' });
+  } finally {
+    if (icon) icon.classList.remove('animate-spin');
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function saveDetailAlertConfig() {

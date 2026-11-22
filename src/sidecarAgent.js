@@ -163,8 +163,42 @@ async function runSidecarTick() {
             const ufiRes = await fetch(ufiUrl, { agent, headers, timeout: 10000 });
             const ufiHtml = await ufiRes.text();
             breakdown = parseMbasicReactionsBreakdown(ufiHtml);
-            const ufiReactors = parseMbasicReactors(ufiHtml);
-            if (ufiReactors.length > 0) reactors = ufiReactors;
+            let allReactors = parseMbasicReactors(ufiHtml, 'LIKE');
+
+            // Check 7 reaction tabs: LIKE (1), LOVE (2), CARE (16), HAHA (4), WOW (3), SAD (7), ANGRY (8)
+            const reactionTabs = [
+              { type: 'LIKE', id: 1, count: breakdown.like },
+              { type: 'LOVE', id: 2, count: breakdown.love },
+              { type: 'CARE', id: 16, count: breakdown.care },
+              { type: 'HAHA', id: 4, count: breakdown.haha },
+              { type: 'WOW', id: 3, count: breakdown.wow },
+              { type: 'SAD', id: 7, count: breakdown.sad },
+              { type: 'ANGRY', id: 8, count: breakdown.angry }
+            ];
+
+            // If any specific reaction tab has interactions, fetch that tab to get exact real accounts
+            for (const rTab of reactionTabs) {
+              if (rTab.count > 0) {
+                const hasType = allReactors.some(r => r.reactionType === rTab.type);
+                if (!hasType) {
+                  try {
+                    const tabUrl = `https://mbasic.facebook.com${parsed.reactionsBrowserUrl}&reaction_type=${rTab.id}`;
+                    const tabRes = await fetch(tabUrl, { agent, headers, timeout: 8000 });
+                    const tabHtml = await tabRes.text();
+                    const tabReactors = parseMbasicReactors(tabHtml, rTab.type);
+                    for (const tr of tabReactors) {
+                      if (!allReactors.some(ar => ar.displayName === tr.displayName && ar.reactionType === tr.reactionType)) {
+                        allReactors.push(tr);
+                      }
+                    }
+                  } catch (tabErr) {
+                    // Ignore individual tab timeout
+                  }
+                }
+              }
+            }
+
+            if (allReactors.length > 0) reactors = allReactors;
           } catch (e) {
             // Ignore ufi error
           }
