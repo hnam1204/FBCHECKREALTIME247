@@ -507,6 +507,19 @@ function renderTargetsTable(targets) {
     else if (t.status === 'DATA_LIMITED') { statusClass = 'status-limited'; statusText = 'Giới hạn'; }
     else if (t.status === 'INACCESSIBLE') { statusClass = 'status-inaccessible'; statusText = 'Lỗi truy cập'; }
 
+    let accountPill = '';
+    if (t.bound_account_name) {
+      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-brand-blue/20 text-brand-cyan border border-brand-cyan/20 font-medium">🔑 ${t.bound_account_name}</span>`;
+    } else if (t.latest_source_type === 'LOCAL_SIDECAR') {
+      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">🖥️ Sidecar (IP Dân cư)</span>`;
+    } else if (t.latest_source_type === 'MBASIC') {
+      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">🍪 Nick phụ Clone</span>`;
+    } else if (t.latest_source_type === 'GRAPH_API') {
+      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-brand-blue/20 text-brand-cyan border border-brand-cyan/20 font-medium">⚡ Meta Graph API</span>`;
+    } else {
+      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-surface-elevated text-txt-sub border border-surface-border font-medium">🔄 Tự động quét</span>`;
+    }
+
     return `
       <tr class="hover:bg-surface-elevated/50 transition">
         <td class="p-3.5">
@@ -534,7 +547,10 @@ function renderTargetsTable(targets) {
           </div>
         </td>
         <td class="p-3.5 text-center">
-          <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold ${statusClass}">${statusText}</span>
+          <div class="inline-flex flex-col items-center">
+            <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold ${statusClass}">${statusText}</span>
+            ${accountPill}
+          </div>
         </td>
         <td class="p-3.5 text-right">
           <div class="flex items-center justify-end gap-2">

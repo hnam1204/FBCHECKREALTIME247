@@ -75,10 +75,14 @@ export default {
             server.send(JSON.stringify({ type: 'PONG', timestamp: new Date().toISOString() }));
           } else if (msg.type === 'GET_METRICS' || msg.type === 'SYNC_REQUEST') {
             const targets = (await env.DB.prepare(`
-              SELECT id, author_name, normalized_url, target_type, latest_reactions, latest_comments, latest_shares, last_checked_at, status
-              FROM monitored_targets 
-              WHERE status != 'PAUSED'
-              ORDER BY priority DESC, last_checked_at DESC
+              SELECT t.*, 
+                     a.name AS bound_account_name, 
+                     a.account_type AS bound_account_type,
+                     (SELECT source_type FROM snapshots WHERE target_id = t.id ORDER BY id DESC LIMIT 1) AS latest_source_type
+              FROM monitored_targets t
+              LEFT JOIN accounts a ON a.id = t.bound_account_id
+              WHERE t.status != 'PAUSED'
+              ORDER BY t.priority DESC, t.last_checked_at DESC
             `).all())?.results || [];
 
             const totals = (await env.DB.prepare(`
@@ -249,23 +253,31 @@ async function handleApiRoute(pathname, method, request, env, url) {
     const type = url.searchParams.get('type');
     const search = url.searchParams.get('search');
 
-    let sql = 'SELECT * FROM monitored_targets WHERE 1=1';
+    let sql = `
+      SELECT t.*, 
+             a.name AS bound_account_name, 
+             a.account_type AS bound_account_type,
+             (SELECT source_type FROM snapshots WHERE target_id = t.id ORDER BY id DESC LIMIT 1) AS latest_source_type
+      FROM monitored_targets t
+      LEFT JOIN accounts a ON a.id = t.bound_account_id
+      WHERE 1=1
+    `;
     const params = [];
 
     if (status) {
-      sql += ' AND status = ?';
+      sql += ' AND t.status = ?';
       params.push(status);
     }
     if (type) {
-      sql += ' AND target_type = ?';
+      sql += ' AND t.target_type = ?';
       params.push(type);
     }
     if (search) {
-      sql += ' AND (normalized_url LIKE ? OR author_name LIKE ? OR content_snippet LIKE ?)';
+      sql += ' AND (t.normalized_url LIKE ? OR t.author_name LIKE ? OR t.content_snippet LIKE ?)';
       const term = `%${search}%`;
       params.push(term, term, term);
     }
-    sql += ' ORDER BY id DESC LIMIT 50';
+    sql += ' ORDER BY t.id DESC LIMIT 50';
 
     const results = (await db.prepare(sql).bind(...params).all())?.results || [];
     return jsonResponse({ targets: results });
@@ -275,7 +287,15 @@ async function handleApiRoute(pathname, method, request, env, url) {
   const targetIdMatch = pathname.match(/^\/api\/targets\/(\d+)$/);
   if (targetIdMatch && method === 'GET') {
     const id = parseInt(targetIdMatch[1], 10);
-    const target = await db.prepare('SELECT * FROM monitored_targets WHERE id = ?').bind(id).first();
+    const target = await db.prepare(`
+      SELECT t.*, 
+             a.name AS bound_account_name, 
+             a.account_type AS bound_account_type,
+             (SELECT source_type FROM snapshots WHERE target_id = t.id ORDER BY id DESC LIMIT 1) AS latest_source_type
+      FROM monitored_targets t
+      LEFT JOIN accounts a ON a.id = t.bound_account_id
+      WHERE t.id = ?
+    `).bind(id).first();
     if (!target) return jsonResponse({ error: 'Không tìm thấy đối tượng' }, 404);
 
     const snapshots = (await db.prepare('SELECT * FROM snapshots WHERE target_id = ? ORDER BY observed_at DESC LIMIT 50').bind(id).all())?.results || [];
