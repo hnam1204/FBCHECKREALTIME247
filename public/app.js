@@ -759,24 +759,63 @@ async function fetchAccountsList() {
     const container = document.getElementById('accountsListContainer');
 
     if (data.accounts.length === 0) {
-      container.innerHTML = '<div class="p-3 text-center text-txt-sub text-xs">Chưa có kết nối nào. Điền form bên trên để thêm token Fanpage Meta.</div>';
+      container.innerHTML = '<div class="p-3 text-center text-txt-sub text-xs">Chưa có kết nối nào. Điền form bên trên để thêm token Fanpage Meta hoặc Cookie mbasic.</div>';
       return;
     }
 
-    container.innerHTML = data.accounts.map(acc => `
-      <div class="p-3 flex items-center justify-between bg-surface text-xs border-b border-surface-border">
-        <div>
-          <div class="font-bold text-txt-title">${acc.name} (${acc.account_type})</div>
-          <div class="text-[11px] text-txt-sub">ID: ${acc.fb_account_id} | Đồng bộ: ${acc.last_sync_at ? new Date(acc.last_sync_at).toLocaleTimeString('vi-VN') : 'Chưa có'}</div>
+    container.innerHTML = data.accounts.map(acc => {
+      const typeBadge = acc.account_type === 'cookie'
+        ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-brand-cyan/20 text-brand-cyan border border-brand-cyan/30">mbasic Cookie</span>'
+        : `<span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-surface-elevated text-txt-sub">${acc.account_type.toUpperCase()}</span>`;
+
+      return `
+        <div class="p-3 flex items-center justify-between bg-surface text-xs border-b border-surface-border">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="font-bold text-txt-title">${acc.name}</span>
+              ${typeBadge}
+            </div>
+            <div class="text-[11px] text-txt-sub mt-0.5">ID: ${acc.fb_account_id} | Đồng bộ: ${acc.last_sync_at ? new Date(acc.last_sync_at).toLocaleTimeString('vi-VN') : 'Chưa có'}</div>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="px-2.5 py-0.5 rounded text-xs font-semibold ${acc.status === 'ACTIVE' ? 'status-active' : 'status-inaccessible'}">${acc.status}</span>
+            <button onclick="revokeAccount(${acc.id})" class="px-2.5 py-1 bg-rose-500/10 text-rose-400 rounded text-xs hover:bg-rose-500/20 transition">Thu hồi</button>
+          </div>
         </div>
-        <div class="flex items-center gap-2">
-          <span class="px-2.5 py-0.5 rounded text-xs font-semibold ${acc.status === 'ACTIVE' ? 'status-active' : 'status-inaccessible'}">${acc.status}</span>
-          <button onclick="revokeAccount(${acc.id})" class="px-2.5 py-1 bg-rose-500/10 text-rose-400 rounded text-xs hover:bg-rose-500/20 transition">Thu hồi</button>
-        </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
   } catch (e) {
     console.error('Lỗi tải accounts:', e);
+  }
+}
+
+async function submitAddCookieAccount() {
+  const name = document.getElementById('cookieAccName').value.trim();
+  const cookie = document.getElementById('cookieInput').value.trim();
+  if (!cookie) {
+    return showNoticeModal({ title: 'Thiếu thông tin', message: 'Vui lòng dán chuỗi Cookie Facebook vào ô nhập liệu.', type: 'warning' });
+  }
+
+  try {
+    const res = await fetch('/api/accounts/import-cookie', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, cookie })
+    });
+    const result = await res.json();
+    if (result.error) throw new Error(result.error);
+
+    document.getElementById('cookieAccName').value = '';
+    document.getElementById('cookieInput').value = '';
+    fetchAccountsList();
+
+    showNoticeModal({
+      title: 'Lưu Cookie mbasic thành công',
+      message: `Đã mã hóa AES-256-GCM cho nick "${result.account.name}". Hệ thống sẽ tự động dùng cookie này để cào số liệu các link bên thứ 3.`,
+      type: 'success'
+    });
+  } catch (err) {
+    showNoticeModal({ title: 'Lỗi nạp Cookie', message: err.message, type: 'error' });
   }
 }
 

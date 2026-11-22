@@ -543,6 +543,26 @@
         </div>
       </div>
 
+      <!-- Add Cookie Account Box (mbasic for 3rd-party public links) -->
+      <div class="bg-surface rounded-xl p-4 space-y-2 border border-brand-cyan/30">
+        <div class="flex items-center justify-between">
+          <h4 class="text-xs font-bold text-brand-cyan flex items-center gap-2">
+            <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+            <span>Nạp Cookie Nick Phụ (mbasic - Giám sát link bên thứ ba):</span>
+          </h4>
+          <span class="text-xs text-txt-sub">Mã hóa AES-256-GCM, tự động cào 24/7</span>
+        </div>
+        <div class="grid grid-cols-3 gap-2">
+          <input type="text" id="cookieAccName" placeholder="Tên gợi nhớ (VD: Clone 1)" class="rounded px-3 py-1.5 text-xs">
+          <input type="password" id="cookieInput" placeholder="Dán chuỗi Cookie (c_user=...; xs=...;)" class="col-span-2 rounded px-3 py-1.5 text-xs font-mono">
+        </div>
+        <div class="flex justify-end mt-1">
+          <button type="button" onclick="submitAddCookieAccount()" class="px-4 py-1.5 bg-brand-blue hover:bg-brand-ocean text-white text-xs font-semibold rounded whitespace-nowrap border border-brand-cyan/30">
+            Lưu Cookie mbasic
+          </button>
+        </div>
+      </div>
+
       <!-- Add Account Form -->
       <form id="addAccountForm" onsubmit="submitAddAccount(event)" class="bg-surface rounded-xl p-4 space-y-3 text-xs border border-surface-border">
         <h4 class="font-semibold text-txt-title">Thêm kết nối thủ công (Page / User Token):</h4>

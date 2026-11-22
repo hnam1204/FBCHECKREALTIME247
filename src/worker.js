@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { parseBatchUrls, normalizeUrl, analyzeUrl } from './analyzer/urlAnalyzer.js';
+import { extractCUser, isCheckpointOrLogin, parseMbasicHtml, parseMbasicReactionsBreakdown } from './collector/mbasicCollector.js';
 
 // --- Crypto Utilities (AES-256-GCM) ---
 const ALGORITHM = 'aes-256-gcm';
@@ -265,17 +266,15 @@ async function handleApiRoute(pathname, method, request, env, url) {
     return jsonResponse({ accounts });
   }
 
-  // POST /api/accounts/inspect-and-import
+  // POST /api/accounts/inspect-and-import (Meta OAuth Token)
   if (pathname === '/api/accounts/inspect-and-import' && method === 'POST') {
     const { token } = await request.json();
     if (!token) return jsonResponse({ error: 'Thiếu token' }, 400);
 
-    // Call Meta Graph API on Cloudflare Edge
     const meRes = await fetch(`https://graph.facebook.com/${graphVersion}/me?fields=id,name&access_token=${token}`);
     const me = await meRes.json();
     if (me.error) return jsonResponse({ error: me.error.message }, 400);
 
-    // Permissions
     const permRes = await fetch(`https://graph.facebook.com/${graphVersion}/me/permissions?access_token=${token}`);
     const perms = (await permRes.json()).data || [];
     const grantedScopes = perms.filter(p => p.status === 'granted').map(p => p.permission).join(',');
@@ -283,14 +282,12 @@ async function handleApiRoute(pathname, method, request, env, url) {
     const now = new Date().toISOString();
     const encToken = encryptToken(token, masterKey);
 
-    // Save User Account
     await db.prepare(`
       INSERT INTO accounts (name, account_type, fb_account_id, encrypted_token, scopes, status, created_at)
       VALUES (?, 'user', ?, ?, ?, 'ACTIVE', ?)
       ON CONFLICT(fb_account_id) DO UPDATE SET encrypted_token = excluded.encrypted_token, scopes = excluded.scopes, status = 'ACTIVE'
     `).bind(me.name, me.id, encToken, grantedScopes, now).run();
 
-    // Fetch Managed Pages
     const pagesRes = await fetch(`https://graph.facebook.com/${graphVersion}/me/accounts?fields=id,name,access_token&limit=100&access_token=${token}`);
     const pages = (await pagesRes.json()).data || [];
 
@@ -306,6 +303,36 @@ async function handleApiRoute(pathname, method, request, env, url) {
     return jsonResponse({
       user: { id: me.id, name: me.name, grantedScopes: grantedScopes.split(',') },
       pagesCount: pages.length
+    });
+  }
+
+  // POST /api/accounts/import-cookie (Nick Phụ / mbasic Scraper)
+  if (pathname === '/api/accounts/import-cookie' && method === 'POST') {
+    const { name, cookie } = await request.json();
+    if (!cookie || typeof cookie !== 'string' || cookie.trim().length === 0) {
+      return jsonResponse({ error: 'Cần cung cấp chuỗi Cookie Facebook' }, 400);
+    }
+
+    const cUser = extractCUser(cookie);
+    const fbAccountId = cUser || `cookie_${Date.now()}`;
+    const accountName = (name && name.trim()) ? name.trim() : `Cookie (${cUser || 'Clone'})`;
+    const encCookie = encryptToken(cookie.trim(), masterKey);
+    const now = new Date().toISOString();
+
+    await db.prepare(`
+      INSERT INTO accounts (name, account_type, fb_account_id, encrypted_token, scopes, status, created_at)
+      VALUES (?, 'cookie', ?, ?, 'mbasic', 'ACTIVE', ?)
+      ON CONFLICT(fb_account_id) DO UPDATE SET encrypted_token = excluded.encrypted_token, name = excluded.name, status = 'ACTIVE', error_log = NULL
+    `).bind(accountName, fbAccountId, encCookie, now).run();
+
+    return jsonResponse({
+      success: true,
+      account: {
+        name: accountName,
+        account_type: 'cookie',
+        fb_account_id: fbAccountId,
+        status: 'ACTIVE'
+      }
     });
   }
 
@@ -342,6 +369,7 @@ async function handleApiRoute(pathname, method, request, env, url) {
     return jsonResponse({
       status: 'HEALTHY',
       platform: 'Cloudflare Workers (Edge Serverless)',
+      engine: 'Hybrid (Meta Graph API + mbasic Scraper)',
       timestamp: new Date().toISOString()
     });
   }
@@ -375,27 +403,46 @@ async function runScheduledMonitoringTick(env) {
   }
 }
 
-// Helper: Query Meta Graph API and save snapshot into D1
+// Helper: Query Meta Graph API (owned posts) or fallback to mbasic (3rd-party public links)
 async function syncSingleTarget(target, env) {
   const db = env.DB;
   const masterKey = env.ENCRYPTION_MASTER_KEY || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
   const graphVersion = env.META_GRAPH_VERSION || 'v21.0';
 
-  // Find eligible token
+  // 1. Check if eligible Meta Token exists
   let token = null;
   if (target.bound_account_id) {
-    const acc = await db.prepare('SELECT encrypted_token, status FROM accounts WHERE id = ?').bind(target.bound_account_id).first();
-    if (acc && acc.status === 'ACTIVE') token = decryptToken(acc.encrypted_token, masterKey);
+    const acc = await db.prepare('SELECT encrypted_token, status, account_type FROM accounts WHERE id = ?').bind(target.bound_account_id).first();
+    if (acc && acc.status === 'ACTIVE' && acc.account_type !== 'cookie') {
+      token = decryptToken(acc.encrypted_token, masterKey);
+    }
   }
   if (!token) {
-    const candidate = await db.prepare("SELECT encrypted_token FROM accounts WHERE status = 'ACTIVE' ORDER BY last_sync_at DESC LIMIT 1").first();
+    const candidate = await db.prepare("SELECT encrypted_token FROM accounts WHERE status = 'ACTIVE' AND account_type IN ('page', 'user') ORDER BY last_sync_at DESC LIMIT 1").first();
     if (candidate) token = decryptToken(candidate.encrypted_token, masterKey);
   }
 
-  if (!token) {
-    throw new Error('Chưa có token Meta hợp lệ');
+  // 2. If token exists and target has content_id with underscore (Page Post), try Graph API
+  let graphSuccess = false;
+  if (token && target.content_id && target.content_id.includes('_')) {
+    try {
+      await syncViaGraphApi(target, token, env, graphVersion);
+      graphSuccess = true;
+    } catch (err) {
+      // If error requires Page Public Content Access or is permission denied, fall through to mbasic
+      console.warn(`Graph API failed for target #${target.id} (${err.message}). Falling back to mbasic...`);
+    }
   }
 
+  // 3. Fallback to mbasic Scraper for 3rd-party public targets
+  if (!graphSuccess) {
+    await syncViaMbasic(target, env, masterKey);
+  }
+}
+
+// Implementation: Sync via Meta Graph API
+async function syncViaGraphApi(target, token, env, graphVersion) {
+  const db = env.DB;
   const fields = [
     'id', 'created_time', 'message', 'from',
     'reactions.summary(total_count).as(all_reactions)',
@@ -417,16 +464,13 @@ async function syncSingleTarget(target, env) {
   const totalReactions = data.all_reactions?.summary?.total_count || 0;
   const totalComments = data.comments?.summary?.total_count || 0;
   const totalShares = data.shares?.count || 0;
-
   const now = new Date().toISOString();
 
-  // Get previous snapshot
   const lastSnap = await db.prepare('SELECT * FROM snapshots WHERE target_id = ? ORDER BY observed_at DESC LIMIT 1').bind(target.id).first();
   const deltaRx = lastSnap ? (totalReactions - lastSnap.total_reactions) : 0;
   const deltaCmt = lastSnap ? (totalComments - lastSnap.total_comments) : 0;
   const deltaSh = lastSnap ? (totalShares - lastSnap.total_shares) : 0;
 
-  // Insert Snapshot
   await db.prepare(`
     INSERT INTO snapshots (
       target_id, observed_at, source_type,
@@ -447,7 +491,6 @@ async function syncSingleTarget(target, env) {
     deltaRx, deltaCmt, deltaSh
   ).run();
 
-  // Update Target
   await db.prepare(`
     UPDATE monitored_targets
     SET latest_reactions = ?, latest_comments = ?, latest_shares = ?,
@@ -456,11 +499,125 @@ async function syncSingleTarget(target, env) {
     WHERE id = ?
   `).bind(totalReactions, totalComments, totalShares, data.from?.name || null, now, target.id).run();
 
-  // Anomaly Spike Alert Detection
   if (lastSnap && deltaRx >= 50) {
     await db.prepare(`
       INSERT INTO alerts (target_id, alert_type, metric_name, old_val, new_val, delta, threshold, severity, message, detected_at)
       VALUES (?, 'REACTION_SPIKE', 'reactions', ?, ?, ?, 50, 'WARNING', 'Lượt cảm xúc tăng vọt (+${deltaRx}) trên Edge.', ?)
     `).bind(target.id, lastSnap.total_reactions, totalReactions, deltaRx, now).run();
+  }
+}
+
+// Implementation: Sync via mbasic.facebook.com (Third-party public links with Cookie)
+async function syncViaMbasic(target, env, masterKey) {
+  const db = env.DB;
+  const now = new Date().toISOString();
+
+  // Find active cookie account
+  const cookieAcc = await db.prepare("SELECT * FROM accounts WHERE account_type = 'cookie' AND status = 'ACTIVE' ORDER BY last_sync_at ASC LIMIT 1").first();
+  if (!cookieAcc) {
+    await db.prepare(`
+      UPDATE monitored_targets
+      SET status = 'NEEDS_AUTH',
+          last_error = 'Yêu cầu quyền PPCA của Meta hoặc thêm Cookie nick phụ (mbasic)',
+          last_checked_at = ?
+      WHERE id = ?
+    `).bind(now, target.id).run();
+    return;
+  }
+
+  const cookie = decryptToken(cookieAcc.encrypted_token, masterKey);
+  if (!cookie) {
+    throw new Error('Không thể giải mã cookie');
+  }
+
+  // Format URL for mbasic
+  let mbasicUrl = target.normalized_url;
+  if (mbasicUrl.includes('facebook.com')) {
+    mbasicUrl = mbasicUrl.replace(/https?:\/\/(?:www\.|m\.)?facebook\.com/, 'https://mbasic.facebook.com');
+  } else if (target.content_id) {
+    mbasicUrl = `https://mbasic.facebook.com/${target.content_id}`;
+  }
+
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Cookie': cookie,
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate'
+  };
+
+  const response = await fetch(mbasicUrl, { headers });
+  const html = await response.text();
+
+  // Checkpoint or Login Wall Detection
+  if (isCheckpointOrLogin(response.url, html)) {
+    await db.prepare("UPDATE accounts SET status = 'NEEDS_REAUTH', error_log = 'Cookie bị checkpoint hoặc hết hạn đăng nhập' WHERE id = ?").bind(cookieAcc.id).run();
+    await db.prepare(`
+      INSERT INTO alerts (target_id, alert_type, metric_name, old_val, new_val, delta, threshold, severity, message, detected_at)
+      VALUES (?, 'AUTH_LOST', 'cookie', 1, 0, -1, 0, 'CRITICAL', 'Cookie nick phụ (${cookieAcc.name}) bị checkpoint hoặc mất phiên. Cần nạp cookie mới.', ?)
+    `).bind(target.id, now).run();
+    throw new Error(`Cookie account #${cookieAcc.id} bị checkpoint`);
+  }
+
+  const parsed = parseMbasicHtml(html);
+
+  // If detailed reaction tab exists, fetch breakdown of 7 reaction types
+  let breakdown = { like: parsed.totalReactions, love: 0, care: 0, haha: 0, wow: 0, sad: 0, angry: 0 };
+  if (parsed.reactionsBrowserUrl) {
+    try {
+      const ufiUrl = `https://mbasic.facebook.com${parsed.reactionsBrowserUrl}`;
+      const ufiRes = await fetch(ufiUrl, { headers });
+      const ufiHtml = await ufiRes.text();
+      breakdown = parseMbasicReactionsBreakdown(ufiHtml);
+      // Ensure sum is reasonable or keep total
+      if (parsed.totalReactions === 0) {
+        parsed.totalReactions = Object.values(breakdown).reduce((a, b) => a + b, 0);
+      }
+    } catch (e) {
+      console.warn('Lỗi bóc tách breakdown mbasic reaction:', e.message);
+    }
+  }
+
+  // Get previous snapshot
+  const lastSnap = await db.prepare('SELECT * FROM snapshots WHERE target_id = ? ORDER BY observed_at DESC LIMIT 1').bind(target.id).first();
+  const deltaRx = lastSnap ? (parsed.totalReactions - lastSnap.total_reactions) : 0;
+  const deltaCmt = lastSnap ? (parsed.totalComments - lastSnap.total_comments) : 0;
+  const deltaSh = lastSnap ? (parsed.totalShares - lastSnap.total_shares) : 0;
+
+  // Insert Snapshot
+  await db.prepare(`
+    INSERT INTO snapshots (
+      target_id, observed_at, source_type,
+      total_reactions, like_count, love_count, care_count, haha_count, wow_count, sad_count, angry_count,
+      total_comments, total_shares, delta_reactions, delta_comments, delta_shares
+    ) VALUES (?, ?, 'MBASIC', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    target.id, now,
+    parsed.totalReactions,
+    breakdown.like, breakdown.love, breakdown.care, breakdown.haha, breakdown.wow, breakdown.sad, breakdown.angry,
+    parsed.totalComments, parsed.totalShares,
+    deltaRx, deltaCmt, deltaSh
+  ).run();
+
+  // Update Target
+  await db.prepare(`
+    UPDATE monitored_targets
+    SET latest_reactions = ?, latest_comments = ?, latest_shares = ?,
+        author_name = COALESCE(?, author_name),
+        content_snippet = COALESCE(?, content_snippet),
+        last_checked_at = ?, last_error = NULL, status = 'ACTIVE'
+    WHERE id = ?
+  `).bind(parsed.totalReactions, parsed.totalComments, parsed.totalShares, parsed.authorName, parsed.contentSnippet, now, target.id).run();
+
+  // Update Cookie Account last sync
+  await db.prepare('UPDATE accounts SET last_sync_at = ? WHERE id = ?').bind(now, cookieAcc.id).run();
+
+  // Anomaly Spike Alert Detection
+  if (lastSnap && deltaRx >= 50) {
+    await db.prepare(`
+      INSERT INTO alerts (target_id, alert_type, metric_name, old_val, new_val, delta, threshold, severity, message, detected_at)
+      VALUES (?, 'REACTION_SPIKE', 'reactions', ?, ?, ?, 50, 'WARNING', 'Lượt cảm xúc tăng vọt (+${deltaRx}) trên mbasic Edge.', ?)
+    `).bind(target.id, lastSnap.total_reactions, parsed.totalReactions, deltaRx, now).run();
   }
 }
