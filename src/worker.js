@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { parseBatchUrls, normalizeUrl, analyzeUrl } from './analyzer/urlAnalyzer.js';
-import { extractCUser, isCheckpointOrLogin, parseMbasicHtml, parseMbasicReactionsBreakdown } from './collector/mbasicCollector.js';
+import { extractCUser, isCheckpointOrLogin, parseMbasicHtml, parseMbasicReactionsBreakdown, parseMbasicReactors } from './collector/mbasicCollector.js';
 
 // --- Crypto Utilities (AES-256-GCM) ---
 const ALGORITHM = 'aes-256-gcm';
@@ -606,6 +606,26 @@ async function syncViaGraphApi(target, token, env, graphVersion) {
     WHERE id = ?
   `).bind(totalReactions, totalComments, totalShares, data.from?.name || null, now, target.id).run();
 
+  // Insert Identifiable Comments from Meta Graph API
+  if (data.comments && Array.isArray(data.comments.data)) {
+    for (const c of data.comments.data) {
+      await db.prepare(`
+        INSERT INTO accounts_interacted (
+          target_id, fb_user_id, display_name, profile_url, avatar_url,
+          interaction_type, reaction_type, comment_text, observed_at, data_completeness
+        ) VALUES (?, ?, ?, ?, ?, 'COMMENT', NULL, ?, ?, 'FULL')
+      `).bind(
+        target.id,
+        c.from?.id || c.id,
+        c.from?.name || 'Người dùng Facebook',
+        c.from?.id ? `https://www.facebook.com/${c.from.id}` : null,
+        c.from?.picture?.data?.url || null,
+        c.message || '',
+        c.created_time || now
+      ).run();
+    }
+  }
+
   if (lastSnap && deltaRx >= 50) {
     await db.prepare(`
       INSERT INTO alerts (target_id, alert_type, metric_name, old_val, new_val, delta, threshold, severity, message, detected_at)
@@ -670,18 +690,42 @@ async function syncViaMbasic(target, env, masterKey) {
 
   // Use parsed reactions breakdown (or fetch ufi if legacy mbasic)
   let breakdown = parsed.reactions || { like: parsed.totalReactions, love: 0, care: 0, haha: 0, wow: 0, sad: 0, angry: 0 };
+  let reactors = parsed.reactors || [];
   if (parsed.reactionsBrowserUrl) {
     try {
       const ufiUrl = `https://mbasic.facebook.com${parsed.reactionsBrowserUrl}`;
       const ufiRes = await fetch(ufiUrl, { headers });
       const ufiHtml = await ufiRes.text();
       breakdown = parseMbasicReactionsBreakdown(ufiHtml);
+      const ufiReactors = parseMbasicReactors(ufiHtml);
+      if (ufiReactors.length > 0) reactors = ufiReactors;
       if (parsed.totalReactions === 0) {
         parsed.totalReactions = Object.values(breakdown).reduce((a, b) => a + b, 0);
       }
     } catch (e) {
       console.warn('Lỗi bóc tách breakdown mbasic reaction:', e.message);
     }
+  }
+
+  // Insert Identifiable Comments & Reactors into accounts_interacted
+  const interactions = [...(parsed.comments || []), ...reactors];
+  for (const item of interactions.slice(0, 30)) {
+    await db.prepare(`
+      INSERT INTO accounts_interacted (
+        target_id, fb_user_id, display_name, profile_url, avatar_url,
+        interaction_type, reaction_type, comment_text, observed_at, data_completeness
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'FULL')
+    `).bind(
+      target.id,
+      item.fbUserId || null,
+      item.displayName || 'Người dùng Facebook',
+      item.profileUrl || null,
+      item.avatarUrl || null,
+      item.interactionType || 'COMMENT',
+      item.reactionType || null,
+      item.commentText || null,
+      now
+    ).run();
   }
 
   // Get previous snapshot

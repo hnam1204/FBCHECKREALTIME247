@@ -148,7 +148,9 @@ export function parseMbasicHtml(html) {
       totalShares,
       authorName,
       contentSnippet,
-      reactionsBrowserUrl: null
+      reactionsBrowserUrl: null,
+      comments: parseComments(html),
+      reactors: parseReactors(html)
     };
   }
 
@@ -210,8 +212,174 @@ export function parseMbasicHtml(html) {
     totalShares,
     authorName,
     contentSnippet,
-    reactionsBrowserUrl
+    reactionsBrowserUrl,
+    comments: parseComments(html),
+    reactors: []
   };
+}
+
+/**
+ * Extracts list of comments and commenters from HTML (supports Comet JSON store & mbasic HTML)
+ * @param {string} html
+ * @returns {Array<{displayName: string, fbUserId: string|null, profileUrl: string|null, avatarUrl: string|null, commentText: string, interactionType: string}>}
+ */
+export function parseComments(html) {
+  const comments = [];
+  if (!html || typeof html !== 'string') return comments;
+
+  // 1. Comet React Store Comments: match "body":{"text":"..."} blocks
+  const cometRegex = /"body"\s*:\s*\{\s*"text"\s*:\s*"([^"]+)"\}[\s\S]{1,400}?"author"\s*:\s*\{[^}]*?"name"\s*:\s*"([^"]+)"(?:[^}]*?"id"\s*:\s*"([^"]+)")?/gi;
+  for (const m of html.matchAll(cometRegex)) {
+    try {
+      const text = JSON.parse(`"${m[1]}"`);
+      const name = JSON.parse(`"${m[2]}"`);
+      const id = m[3] || null;
+      if (name && text) {
+        comments.push({
+          displayName: name,
+          fbUserId: id,
+          profileUrl: id ? `https://www.facebook.com/${id}` : null,
+          avatarUrl: null,
+          commentText: text,
+          interactionType: 'COMMENT'
+        });
+      }
+    } catch {}
+    if (comments.length >= 20) break;
+  }
+
+  // Check reverse Comet ordering
+  if (comments.length === 0) {
+    const revRegex = /"author"\s*:\s*\{[^}]*?"name"\s*:\s*"([^"]+)"(?:[^}]*?"id"\s*:\s*"([^"]+)")?[^}]*\}[\s\S]{1,400}?"body"\s*:\s*\{\s*"text"\s*:\s*"([^"]+)"\}/gi;
+    for (const m of html.matchAll(revRegex)) {
+      try {
+        const name = JSON.parse(`"${m[1]}"`);
+        const id = m[2] || null;
+        const text = JSON.parse(`"${m[3]}"`);
+        if (name && text) {
+          comments.push({
+            displayName: name,
+            fbUserId: id,
+            profileUrl: id ? `https://www.facebook.com/${id}` : null,
+            avatarUrl: null,
+            commentText: text,
+            interactionType: 'COMMENT'
+          });
+        }
+      } catch {}
+      if (comments.length >= 20) break;
+    }
+  }
+
+  // 2. Classic mbasic HTML Comments
+  if (comments.length === 0) {
+    const mbasicRegex = /<h3[^>]*><a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a><\/h3>[\s\S]*?<div[^>]*>([\s\S]*?)<\/div>/gi;
+    for (const m of html.matchAll(mbasicRegex)) {
+      const rawHref = m[1];
+      const rawName = m[2].replace(/<[^>]+>/g, '').trim();
+      const rawText = m[3].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      if (rawName && rawText && !rawText.includes('bình luận') && !rawText.includes('Thích') && !rawText.includes('Báo cáo')) {
+        const idMatch = rawHref.match(/[?&]id=(\d+)/) || rawHref.match(/\/([a-zA-Z0-9.]+)/);
+        comments.push({
+          displayName: rawName,
+          fbUserId: idMatch ? idMatch[1] : null,
+          profileUrl: `https://www.facebook.com${rawHref.startsWith('/') ? '' : '/'}${rawHref}`,
+          avatarUrl: null,
+          commentText: rawText,
+          interactionType: 'COMMENT'
+        });
+      }
+      if (comments.length >= 20) break;
+    }
+  }
+
+  return comments;
+}
+
+/**
+ * Extracts list of reactors from Comet JSON
+ * @param {string} html
+ * @returns {Array<{displayName: string, fbUserId: string|null, profileUrl: string|null, avatarUrl: string|null, interactionType: string, reactionType: string, commentText: null}>}
+ */
+export function parseReactors(html) {
+  const reactors = [];
+  if (!html || typeof html !== 'string') return reactors;
+
+  // Comet actors / reactors
+  const cometLikersRegex = /"actors"\s*:\s*\[\s*\{\s*"id"\s*:\s*"([^"]+)",\s*"name"\s*:\s*"([^"]+)"/gi;
+  for (const m of html.matchAll(cometLikersRegex)) {
+    try {
+      const id = m[1];
+      const name = JSON.parse(`"${m[2]}"`);
+      if (name && !reactors.some(r => r.displayName === name)) {
+        reactors.push({
+          displayName: name,
+          fbUserId: id,
+          profileUrl: `https://www.facebook.com/${id}`,
+          avatarUrl: null,
+          interactionType: 'REACTION',
+          reactionType: 'LIKE',
+          commentText: null
+        });
+      }
+    } catch {}
+    if (reactors.length >= 15) break;
+  }
+
+  return reactors;
+}
+
+/**
+ * Parses mbasic UFI reaction browser HTML page to extract profiles of reactors
+ * @param {string} html
+ * @returns {Array<{displayName: string, fbUserId: string|null, profileUrl: string|null, avatarUrl: string|null, interactionType: string, reactionType: string, commentText: null}>}
+ */
+export function parseMbasicReactors(html) {
+  const reactors = [];
+  if (!html || typeof html !== 'string') return reactors;
+
+  const rowRegex = /<tr[^>]*>[\s\S]*?<img[^>]+src="([^"]+)"[^>]*>[\s\S]*?<a[^>]+href="([^"]+)"[^>]*>[\s\S]*?<strong[^>]*>([\s\S]*?)<\/strong>[\s\S]*?<\/tr>/gi;
+  for (const m of html.matchAll(rowRegex)) {
+    const avatar = m[1].replace(/&amp;/g, '&');
+    const href = m[2];
+    const name = m[3].replace(/<[^>]+>/g, '').trim();
+    if (name && !name.includes('Quay lại') && !name.includes('Tất cả')) {
+      const idMatch = href.match(/[?&]id=(\d+)/) || href.match(/\/([a-zA-Z0-9.]+)/);
+      reactors.push({
+        displayName: name,
+        fbUserId: idMatch ? idMatch[1] : null,
+        profileUrl: `https://www.facebook.com${href.startsWith('/') ? '' : '/'}${href}`,
+        avatarUrl: avatar.startsWith('http') ? avatar : null,
+        interactionType: 'REACTION',
+        reactionType: 'LIKE',
+        commentText: null
+      });
+    }
+    if (reactors.length >= 20) break;
+  }
+
+  if (reactors.length === 0) {
+    const linkRegex = /<li[^>]*>[\s\S]*?<a[^>]+href="([^"]+)"[^>]*>[\s\S]*?<strong[^>]*>([\s\S]*?)<\/strong>[\s\S]*?<\/li>/gi;
+    for (const m of html.matchAll(linkRegex)) {
+      const href = m[1];
+      const name = m[2].replace(/<[^>]+>/g, '').trim();
+      if (name) {
+        const idMatch = href.match(/[?&]id=(\d+)/) || href.match(/\/([a-zA-Z0-9.]+)/);
+        reactors.push({
+          displayName: name,
+          fbUserId: idMatch ? idMatch[1] : null,
+          profileUrl: `https://www.facebook.com${href.startsWith('/') ? '' : '/'}${href}`,
+          avatarUrl: null,
+          interactionType: 'REACTION',
+          reactionType: 'LIKE',
+          commentText: null
+        });
+      }
+      if (reactors.length >= 20) break;
+    }
+  }
+
+  return reactors;
 }
 
 /**

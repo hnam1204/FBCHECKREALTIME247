@@ -739,25 +739,44 @@ function renderDetailHistoryChart(snapshots) {
 
 function renderInteractedAccounts(accounts) {
   const container = document.getElementById('detailInteractedList');
-  document.getElementById('detailIdentifiedCount').textContent = `${accounts.length} bản ghi`;
+  document.getElementById('detailIdentifiedCount').textContent = `${accounts.length} tương tác`;
 
   if (accounts.length === 0) {
-    container.innerHTML = '<div class="text-gray-500 italic py-2 text-center">Chưa có bình luận hoặc tài khoản được cấp quyền đọc chi tiết.</div>';
+    container.innerHTML = '<div class="text-txt-sub italic py-3 text-center">Chưa có bình luận hoặc tài khoản tương tác nào được bóc tách. Bấm nút đồng bộ để quét.</div>';
     return;
   }
 
-  container.innerHTML = accounts.map(a => `
-    <div class="py-2 flex items-start gap-2.5">
-      <img src="${a.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=60&h=60&fit=crop'}" class="w-7 h-7 rounded-full object-cover">
-      <div class="flex-1">
-        <div class="flex items-center justify-between">
-          <span class="font-semibold text-white">${a.display_name}</span>
-          <span class="text-[10px] text-gray-500">${new Date(a.observed_at).toLocaleTimeString('vi-VN')}</span>
+  container.innerHTML = accounts.map(a => {
+    const isComment = (a.interaction_type || '').toUpperCase() === 'COMMENT';
+    const typeBadge = isComment
+      ? '<span class="px-1.5 py-0.5 rounded text-[10px] bg-brand-blue/20 text-brand-cyan border border-brand-cyan/20">💬 Bình luận</span>'
+      : `<span class="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20">👍 Cảm xúc (${a.reaction_type || 'Like'})</span>`;
+    
+    const profileLink = a.profile_url
+      ? `<a href="${a.profile_url}" target="_blank" class="font-semibold text-txt-title hover:text-brand-cyan transition">${a.display_name}</a>`
+      : `<span class="font-semibold text-txt-title">${a.display_name}</span>`;
+
+    const avatar = a.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=60&h=60&fit=crop';
+    const commentBody = a.comment_text
+      ? `<p class="text-xs text-txt-body mt-1 bg-surface-elevated/60 p-2 rounded-lg border border-surface-border break-words">${a.comment_text}</p>`
+      : '';
+
+    return `
+      <div class="py-2.5 flex items-start gap-3 hover:bg-surface-elevated/30 px-2 rounded-xl transition">
+        <img src="${avatar}" class="w-8 h-8 rounded-full object-cover bg-gray-800 border border-surface-border shrink-0" onerror="this.src='https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=60&h=60&fit=crop'">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2 truncate">
+              ${profileLink}
+              ${typeBadge}
+            </div>
+            <span class="text-[10px] text-txt-muted shrink-0">${new Date(a.observed_at).toLocaleTimeString('vi-VN')}</span>
+          </div>
+          ${commentBody}
         </div>
-        <p class="text-gray-300 mt-0.5">${a.comment_text || ''}</p>
       </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 
 async function saveDetailAlertConfig() {

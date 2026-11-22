@@ -116,3 +116,38 @@ test('mbasicCollector: parseMbasicHtml extracts accurate data from Comet React J
   assert.equal(parsed.contentSnippet, 'Chia sẻ bài viết thử nghiệm hệ thống');
 });
 
+test('mbasicCollector: parseComments extracts comment content and user profile', async () => {
+  const { parseComments } = await import('../src/collector/mbasicCollector.js');
+  const mbasicHtml = `
+    <div>
+      <h3 class="actor"><a href="/profile.php?id=1000888999">Nguyễn Văn B</a></h3>
+      <div>Bài viết rất hay, cảm ơn tác giả đã chia sẻ!</div>
+    </div>
+  `;
+  const comments = parseComments(mbasicHtml);
+  assert.equal(comments.length, 1);
+  assert.equal(comments[0].displayName, 'Nguyễn Văn B');
+  assert.equal(comments[0].fbUserId, '1000888999');
+  assert.equal(comments[0].commentText, 'Bài viết rất hay, cảm ơn tác giả đã chia sẻ!');
+  assert.equal(comments[0].interactionType, 'COMMENT');
+});
+
+test('mbasicCollector: parseMbasicReactors extracts profiles of users who reacted', async () => {
+  const { parseMbasicReactors } = await import('../src/collector/mbasicCollector.js');
+  const ufiHtml = `
+    <table>
+      <tr>
+        <td><img src="https://fbcdn.net/avatar1.jpg" /></td>
+        <td><a href="/profile.php?id=1000111222"><strong>Trần Thị C</strong></a></td>
+      </tr>
+    </table>
+  `;
+  const reactors = parseMbasicReactors(ufiHtml);
+  assert.equal(reactors.length, 1);
+  assert.equal(reactors[0].displayName, 'Trần Thị C');
+  assert.equal(reactors[0].fbUserId, '1000111222');
+  assert.equal(reactors[0].avatarUrl, 'https://fbcdn.net/avatar1.jpg');
+  assert.equal(reactors[0].interactionType, 'REACTION');
+});
+
+
