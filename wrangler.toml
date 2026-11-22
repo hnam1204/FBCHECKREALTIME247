@@ -1,0 +1,25 @@
+name = "cookiefb"
+main = "src/worker.js"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Serve static dashboard from public/
+[assets]
+directory = "public"
+binding = "ASSETS"
+
+# Serverless SQLite: Cloudflare D1
+[[d1_databases]]
+binding = "DB"
+database_name = "facebook-monitor"
+database_id = "64cb88c3-232d-4d75-80b9-8fd55847e2cf"
+migrations_dir = "migrations"
+
+# 24/7 Autonomous Background Scheduler (Runs every 1 minute on Cloudflare Edge)
+[triggers]
+crons = ["* * * * *"]
+
+# Environment Variables
+[vars]
+ENCRYPTION_MASTER_KEY = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+META_GRAPH_VERSION = "v21.0"

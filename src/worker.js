@@ -1,0 +1,466 @@
+import crypto from 'node:crypto';
+import { parseBatchUrls, normalizeUrl, analyzeUrl } from './analyzer/urlAnalyzer.js';
+
+// --- Crypto Utilities (AES-256-GCM) ---
+const ALGORITHM = 'aes-256-gcm';
+const IV_LENGTH = 12;
+
+function encryptToken(text, masterHexKey) {
+  if (!text) return '';
+  const key = Buffer.from(masterHexKey.slice(0, 64), 'hex');
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const tag = cipher.getAuthTag().toString('hex');
+  return `${iv.toString('hex')}:${tag}:${encrypted}`;
+}
+
+function decryptToken(payload, masterHexKey) {
+  if (!payload || !payload.includes(':')) return '';
+  const [ivHex, tagHex, encryptedHex] = payload.split(':');
+  if (!ivHex || !tagHex || !encryptedHex) return '';
+  const key = Buffer.from(masterHexKey.slice(0, 64), 'hex');
+  const iv = Buffer.from(ivHex, 'hex');
+  const tag = Buffer.from(tagHex, 'hex');
+  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+  decipher.setAuthTag(tag);
+  let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
+
+// Helper: JSON Response
+function jsonResponse(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, PATCH, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    }
+  });
+}
+
+// --- Main Cloudflare Worker Export ---
+export default {
+  // 1. HTTP Request Router (Edge API & Static Assets)
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    const pathname = url.pathname;
+    const method = request.method;
+
+    if (method === 'OPTIONS') {
+      return jsonResponse({ ok: true });
+    }
+
+    // Only intercept /api/* routes; all other paths served from public/ via env.ASSETS
+    if (pathname.startsWith('/api/')) {
+      try {
+        return await handleApiRoute(pathname, method, request, env, url);
+      } catch (err) {
+        return jsonResponse({ error: err.message }, 500);
+      }
+    }
+
+    // Fallback to static assets (public/index.html, styles.css, app.js)
+    if (env.ASSETS) {
+      return await env.ASSETS.fetch(request);
+    }
+
+    return new Response('Asset Binding Not Found', { status: 404 });
+  },
+
+  // 2. 24/7 Cloudflare Edge Cron Trigger (Runs every minute)
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runScheduledMonitoringTick(env));
+  }
+};
+
+// --- API Router Implementation for Cloudflare D1 ---
+async function handleApiRoute(pathname, method, request, env, url) {
+  const db = env.DB;
+  const masterKey = env.ENCRYPTION_MASTER_KEY || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+  const graphVersion = env.META_GRAPH_VERSION || 'v21.0';
+
+  // GET /api/overview
+  if (pathname === '/api/overview' && method === 'GET') {
+    const totalTargets = (await db.prepare('SELECT COUNT(*) as count FROM monitored_targets').first())?.count || 0;
+    const activeTasks = (await db.prepare("SELECT COUNT(*) as count FROM monitored_targets WHERE status = 'ACTIVE'").first())?.count || 0;
+    const errorTasks = (await db.prepare("SELECT COUNT(*) as count FROM monitored_targets WHERE status IN ('INACCESSIBLE', 'NEEDS_AUTH')").first())?.count || 0;
+
+    const totals = (await db.prepare(`
+      SELECT 
+        SUM(latest_reactions) as total_reactions,
+        SUM(latest_comments) as total_comments,
+        SUM(latest_shares) as total_shares
+      FROM monitored_targets
+    `).first()) || {};
+
+    const topFastest = (await db.prepare(`
+      SELECT t.id, t.author_name, t.content_snippet, t.target_type, t.normalized_url,
+             t.latest_reactions, t.latest_comments, t.latest_shares,
+             s.delta_reactions, s.growth_rate_5m, s.growth_rate_1h
+      FROM monitored_targets t
+      LEFT JOIN snapshots s ON s.target_id = t.id AND s.id = (
+        SELECT MAX(id) FROM snapshots WHERE target_id = t.id
+      )
+      WHERE t.status = 'ACTIVE'
+      ORDER BY s.growth_rate_5m DESC, s.delta_reactions DESC
+      LIMIT 5
+    `).all())?.results || [];
+
+    const recentAlerts = (await db.prepare(`
+      SELECT a.*, t.author_name, t.normalized_url
+      FROM alerts a
+      JOIN monitored_targets t ON t.id = a.target_id
+      ORDER BY a.detected_at DESC
+      LIMIT 10
+    `).all())?.results || [];
+
+    return jsonResponse({
+      metrics: {
+        totalTargets,
+        activeTasks,
+        errorTasks,
+        totalReactions: totals.total_reactions || 0,
+        totalComments: totals.total_comments || 0,
+        totalShares: totals.total_shares || 0
+      },
+      topFastest,
+      recentAlerts
+    });
+  }
+
+  // POST /api/targets/batch-parse
+  if (pathname === '/api/targets/batch-parse' && method === 'POST') {
+    const body = await request.json();
+    if (!body.input) return jsonResponse({ error: 'Cần cung cấp danh sách URL Facebook' }, 400);
+    const parsed = parseBatchUrls(body.input);
+    return jsonResponse({ items: parsed, totalCount: parsed.length });
+  }
+
+  // POST /api/targets
+  if (pathname === '/api/targets' && method === 'POST') {
+    const { urls, checkIntervalSec = 60, priority = 1, boundAccountId = null } = await request.json();
+    if (!urls || !Array.isArray(urls) || urls.length === 0) {
+      return jsonResponse({ error: 'Danh sách URLs không hợp lệ' }, 400);
+    }
+
+    const created = [];
+    const skipped = [];
+    const now = new Date().toISOString();
+
+    for (const rawUrl of urls) {
+      const clean = normalizeUrl(rawUrl);
+      if (!clean) {
+        skipped.push({ url: rawUrl, reason: 'URL không hợp lệ' });
+        continue;
+      }
+
+      const existing = await db.prepare('SELECT id FROM monitored_targets WHERE normalized_url = ?').bind(clean).first();
+      if (existing) {
+        skipped.push({ url: clean, reason: 'Đã tồn tại trong hệ thống' });
+        continue;
+      }
+
+      const analysis = analyzeUrl(clean);
+      try {
+        const insertRes = await db.prepare(`
+          INSERT INTO monitored_targets (
+            original_url, normalized_url, target_type, content_id,
+            author_name, status, check_interval_sec, priority, bound_account_id, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          rawUrl, clean, analysis.type, analysis.contentId || null,
+          analysis.type.toUpperCase(),
+          analysis.status === 'INACCESSIBLE' ? 'INACCESSIBLE' : 'ACTIVE',
+          Math.max(10, parseInt(checkIntervalSec, 10)),
+          Math.max(1, Math.min(10, parseInt(priority, 10))),
+          boundAccountId || null,
+          now
+        ).run();
+
+        const newTargetId = insertRes.meta.last_row_id;
+        const targetRow = await db.prepare('SELECT * FROM monitored_targets WHERE id = ?').bind(newTargetId).first();
+        created.push(targetRow);
+      } catch (err) {
+        skipped.push({ url: clean, reason: err.message });
+      }
+    }
+
+    return jsonResponse({ createdCount: created.length, created, skipped });
+  }
+
+  // GET /api/targets
+  if (pathname === '/api/targets' && method === 'GET') {
+    const status = url.searchParams.get('status');
+    const type = url.searchParams.get('type');
+    const search = url.searchParams.get('search');
+
+    let sql = 'SELECT * FROM monitored_targets WHERE 1=1';
+    const params = [];
+
+    if (status) {
+      sql += ' AND status = ?';
+      params.push(status);
+    }
+    if (type) {
+      sql += ' AND target_type = ?';
+      params.push(type);
+    }
+    if (search) {
+      sql += ' AND (normalized_url LIKE ? OR author_name LIKE ? OR content_snippet LIKE ?)';
+      const term = `%${search}%`;
+      params.push(term, term, term);
+    }
+    sql += ' ORDER BY id DESC LIMIT 50';
+
+    const results = (await db.prepare(sql).bind(...params).all())?.results || [];
+    return jsonResponse({ targets: results });
+  }
+
+  // GET /api/targets/:id
+  const targetIdMatch = pathname.match(/^\/api\/targets\/(\d+)$/);
+  if (targetIdMatch && method === 'GET') {
+    const id = parseInt(targetIdMatch[1], 10);
+    const target = await db.prepare('SELECT * FROM monitored_targets WHERE id = ?').bind(id).first();
+    if (!target) return jsonResponse({ error: 'Không tìm thấy đối tượng' }, 404);
+
+    const snapshots = (await db.prepare('SELECT * FROM snapshots WHERE target_id = ? ORDER BY observed_at DESC LIMIT 50').bind(id).all())?.results || [];
+    const latestSnapshot = snapshots[0] || null;
+    const interactedAccounts = (await db.prepare('SELECT * FROM accounts_interacted WHERE target_id = ? ORDER BY observed_at DESC LIMIT 30').bind(id).all())?.results || [];
+    const alertConfig = (await db.prepare('SELECT * FROM target_alert_configs WHERE target_id = ?').bind(id).first()) || {};
+
+    return jsonResponse({
+      target,
+      latestSnapshot,
+      snapshots: snapshots.reverse(),
+      interactedAccounts,
+      alertConfig
+    });
+  }
+
+  // DELETE /api/targets/:id
+  if (targetIdMatch && method === 'DELETE') {
+    const id = parseInt(targetIdMatch[1], 10);
+    await db.prepare('DELETE FROM monitored_targets WHERE id = ?').bind(id).run();
+    return jsonResponse({ success: true });
+  }
+
+  // POST /api/targets/:id/sync-now
+  const syncMatch = pathname.match(/^\/api\/targets\/(\d+)\/sync-now$/);
+  if (syncMatch && method === 'POST') {
+    const id = parseInt(syncMatch[1], 10);
+    const target = await db.prepare('SELECT * FROM monitored_targets WHERE id = ?').bind(id).first();
+    if (!target) return jsonResponse({ error: 'Không tìm thấy' }, 404);
+    await syncSingleTarget(target, env);
+    return jsonResponse({ success: true });
+  }
+
+  // GET /api/accounts
+  if (pathname === '/api/accounts' && method === 'GET') {
+    const accounts = (await db.prepare('SELECT id, name, account_type, fb_account_id, scopes, status, expires_at, last_sync_at, error_log FROM accounts ORDER BY id DESC').all())?.results || [];
+    return jsonResponse({ accounts });
+  }
+
+  // POST /api/accounts/inspect-and-import
+  if (pathname === '/api/accounts/inspect-and-import' && method === 'POST') {
+    const { token } = await request.json();
+    if (!token) return jsonResponse({ error: 'Thiếu token' }, 400);
+
+    // Call Meta Graph API on Cloudflare Edge
+    const meRes = await fetch(`https://graph.facebook.com/${graphVersion}/me?fields=id,name&access_token=${token}`);
+    const me = await meRes.json();
+    if (me.error) return jsonResponse({ error: me.error.message }, 400);
+
+    // Permissions
+    const permRes = await fetch(`https://graph.facebook.com/${graphVersion}/me/permissions?access_token=${token}`);
+    const perms = (await permRes.json()).data || [];
+    const grantedScopes = perms.filter(p => p.status === 'granted').map(p => p.permission).join(',');
+
+    const now = new Date().toISOString();
+    const encToken = encryptToken(token, masterKey);
+
+    // Save User Account
+    await db.prepare(`
+      INSERT INTO accounts (name, account_type, fb_account_id, encrypted_token, scopes, status, created_at)
+      VALUES (?, 'user', ?, ?, ?, 'ACTIVE', ?)
+      ON CONFLICT(fb_account_id) DO UPDATE SET encrypted_token = excluded.encrypted_token, scopes = excluded.scopes, status = 'ACTIVE'
+    `).bind(me.name, me.id, encToken, grantedScopes, now).run();
+
+    // Fetch Managed Pages
+    const pagesRes = await fetch(`https://graph.facebook.com/${graphVersion}/me/accounts?fields=id,name,access_token&limit=100&access_token=${token}`);
+    const pages = (await pagesRes.json()).data || [];
+
+    for (const page of pages) {
+      const pageEnc = encryptToken(page.access_token, masterKey);
+      await db.prepare(`
+        INSERT INTO accounts (name, account_type, fb_account_id, encrypted_token, scopes, status, created_at)
+        VALUES (?, 'page', ?, ?, ?, 'ACTIVE', ?)
+        ON CONFLICT(fb_account_id) DO UPDATE SET encrypted_token = excluded.encrypted_token, scopes = excluded.scopes, status = 'ACTIVE'
+      `).bind(page.name, page.id, pageEnc, grantedScopes, now).run();
+    }
+
+    return jsonResponse({
+      user: { id: me.id, name: me.name, grantedScopes: grantedScopes.split(',') },
+      pagesCount: pages.length
+    });
+  }
+
+  // DELETE /api/accounts/:id
+  const accDeleteMatch = pathname.match(/^\/api\/accounts\/(\d+)$/);
+  if (accDeleteMatch && method === 'DELETE') {
+    const id = parseInt(accDeleteMatch[1], 10);
+    await db.prepare('DELETE FROM accounts WHERE id = ?').bind(id).run();
+    return jsonResponse({ success: true });
+  }
+
+  // GET /api/alerts
+  if (pathname === '/api/alerts' && method === 'GET') {
+    const alerts = (await db.prepare(`
+      SELECT a.*, t.author_name, t.normalized_url
+      FROM alerts a
+      JOIN monitored_targets t ON t.id = a.target_id
+      ORDER BY a.detected_at DESC
+      LIMIT 100
+    `).all())?.results || [];
+    return jsonResponse({ alerts });
+  }
+
+  // PATCH /api/alerts/:id/ack
+  const alertAckMatch = pathname.match(/^\/api\/alerts\/(\d+)\/ack$/);
+  if (alertAckMatch && method === 'PATCH') {
+    const id = parseInt(alertAckMatch[1], 10);
+    await db.prepare('UPDATE alerts SET acknowledged = 1 WHERE id = ?').bind(id).run();
+    return jsonResponse({ success: true });
+  }
+
+  // GET /api/health
+  if (pathname === '/api/health' && method === 'GET') {
+    return jsonResponse({
+      status: 'HEALTHY',
+      platform: 'Cloudflare Workers (Edge Serverless)',
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  return jsonResponse({ error: 'Endpoint not found' }, 404);
+}
+
+// --- 24/7 Background Scheduler Execution on Cloudflare Edge ---
+async function runScheduledMonitoringTick(env) {
+  const db = env.DB;
+  const nowIso = new Date().toISOString();
+
+  // Find due targets (priority queue)
+  const dueTargets = (await db.prepare(`
+    SELECT * FROM monitored_targets
+    WHERE status = 'ACTIVE'
+      AND (
+        last_checked_at IS NULL
+        OR (strftime('%s', ?) - strftime('%s', last_checked_at)) >= check_interval_sec
+      )
+    ORDER BY priority DESC, last_checked_at ASC
+    LIMIT 5
+  `).bind(nowIso).all())?.results || [];
+
+  for (const target of dueTargets) {
+    try {
+      await syncSingleTarget(target, env);
+    } catch (e) {
+      console.error(`Lỗi scheduler sync target #${target.id}:`, e.message);
+    }
+  }
+}
+
+// Helper: Query Meta Graph API and save snapshot into D1
+async function syncSingleTarget(target, env) {
+  const db = env.DB;
+  const masterKey = env.ENCRYPTION_MASTER_KEY || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+  const graphVersion = env.META_GRAPH_VERSION || 'v21.0';
+
+  // Find eligible token
+  let token = null;
+  if (target.bound_account_id) {
+    const acc = await db.prepare('SELECT encrypted_token, status FROM accounts WHERE id = ?').bind(target.bound_account_id).first();
+    if (acc && acc.status === 'ACTIVE') token = decryptToken(acc.encrypted_token, masterKey);
+  }
+  if (!token) {
+    const candidate = await db.prepare("SELECT encrypted_token FROM accounts WHERE status = 'ACTIVE' ORDER BY last_sync_at DESC LIMIT 1").first();
+    if (candidate) token = decryptToken(candidate.encrypted_token, masterKey);
+  }
+
+  if (!token) {
+    throw new Error('Chưa có token Meta hợp lệ');
+  }
+
+  const fields = [
+    'id', 'created_time', 'message', 'from',
+    'reactions.summary(total_count).as(all_reactions)',
+    'reactions.type(LIKE).summary(total_count).as(rx_likes)',
+    'reactions.type(LOVE).summary(total_count).as(rx_loves)',
+    'reactions.type(CARE).summary(total_count).as(rx_cares)',
+    'reactions.type(HAHA).summary(total_count).as(rx_hahas)',
+    'reactions.type(WOW).summary(total_count).as(rx_wows)',
+    'reactions.type(SAD).summary(total_count).as(rx_sads)',
+    'reactions.type(ANGRY).summary(total_count).as(rx_angrys)',
+    'comments.summary(total_count).limit(20){id,created_time,message,from{id,name,picture}}',
+    'shares'
+  ].join(',');
+
+  const res = await fetch(`https://graph.facebook.com/${graphVersion}/${target.content_id}?fields=${encodeURIComponent(fields)}&access_token=${token}`);
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message);
+
+  const totalReactions = data.all_reactions?.summary?.total_count || 0;
+  const totalComments = data.comments?.summary?.total_count || 0;
+  const totalShares = data.shares?.count || 0;
+
+  const now = new Date().toISOString();
+
+  // Get previous snapshot
+  const lastSnap = await db.prepare('SELECT * FROM snapshots WHERE target_id = ? ORDER BY observed_at DESC LIMIT 1').bind(target.id).first();
+  const deltaRx = lastSnap ? (totalReactions - lastSnap.total_reactions) : 0;
+  const deltaCmt = lastSnap ? (totalComments - lastSnap.total_comments) : 0;
+  const deltaSh = lastSnap ? (totalShares - lastSnap.total_shares) : 0;
+
+  // Insert Snapshot
+  await db.prepare(`
+    INSERT INTO snapshots (
+      target_id, observed_at, source_type,
+      total_reactions, like_count, love_count, care_count, haha_count, wow_count, sad_count, angry_count,
+      total_comments, total_shares, delta_reactions, delta_comments, delta_shares
+    ) VALUES (?, ?, 'GRAPH_API', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    target.id, now,
+    totalReactions,
+    data.rx_likes?.summary?.total_count || 0,
+    data.rx_loves?.summary?.total_count || 0,
+    data.rx_cares?.summary?.total_count || 0,
+    data.rx_hahas?.summary?.total_count || 0,
+    data.rx_wows?.summary?.total_count || 0,
+    data.rx_sads?.summary?.total_count || 0,
+    data.rx_angrys?.summary?.total_count || 0,
+    totalComments, totalShares,
+    deltaRx, deltaCmt, deltaSh
+  ).run();
+
+  // Update Target
+  await db.prepare(`
+    UPDATE monitored_targets
+    SET latest_reactions = ?, latest_comments = ?, latest_shares = ?,
+        author_name = COALESCE(?, author_name),
+        last_checked_at = ?, last_error = NULL, status = 'ACTIVE'
+    WHERE id = ?
+  `).bind(totalReactions, totalComments, totalShares, data.from?.name || null, now, target.id).run();
+
+  // Anomaly Spike Alert Detection
+  if (lastSnap && deltaRx >= 50) {
+    await db.prepare(`
+      INSERT INTO alerts (target_id, alert_type, metric_name, old_val, new_val, delta, threshold, severity, message, detected_at)
+      VALUES (?, 'REACTION_SPIKE', 'reactions', ?, ?, ?, 50, 'WARNING', 'Lượt cảm xúc tăng vọt (+${deltaRx}) trên Edge.', ?)
+    `).bind(target.id, lastSnap.total_reactions, totalReactions, deltaRx, now).run();
+  }
+}
