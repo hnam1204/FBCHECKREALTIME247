@@ -1859,6 +1859,7 @@ async function handleApiRoute(pathname, method, request, env, url) {
     const activeTargets = (await db.prepare("SELECT COUNT(*) as count FROM monitored_targets WHERE status = 'ACTIVE'").first())?.count || 0;
     const failingTargets = (await db.prepare("SELECT COUNT(*) as count FROM monitored_targets WHERE status IN ('ERROR', 'INACCESSIBLE', 'NEEDS_AUTH', 'RATE_LIMITED')").first())?.count || 0;
     const targetsWithErrors = (await db.prepare("SELECT COUNT(*) as count FROM monitored_targets WHERE last_error IS NOT NULL AND status != 'PAUSED'").first())?.count || 0;
+    const actionableTargets = (await db.prepare("SELECT COUNT(*) as count FROM monitored_targets WHERE status != 'PAUSED'").first())?.count || 0;
 
     // Detect zero-streak targets: active targets that have past baseline or history but are currently 0
     const zeroStreakTargets = (await db.prepare(`
@@ -1871,6 +1872,8 @@ async function handleApiRoute(pathname, method, request, env, url) {
     
     const activeAccounts = (await db.prepare("SELECT COUNT(*) as count FROM accounts WHERE status = 'ACTIVE'").first())?.count || 0;
     const checkpointAccounts = (await db.prepare("SELECT COUNT(*) as count FROM accounts WHERE status IN ('CHECKPOINT', 'NEEDS_REAUTH', 'EXPIRED')").first())?.count || 0;
+    const activeCookieAccounts = (await db.prepare("SELECT COUNT(*) as count FROM accounts WHERE account_type = 'cookie' AND status = 'ACTIVE'").first())?.count || 0;
+    const checkpointCookieAccounts = (await db.prepare("SELECT COUNT(*) as count FROM accounts WHERE account_type = 'cookie' AND status IN ('CHECKPOINT', 'NEEDS_REAUTH', 'EXPIRED')").first())?.count || 0;
     
     const latestSnap = await db.prepare("SELECT observed_at FROM snapshots ORDER BY observed_at DESC LIMIT 1").first();
     const lastSnapshotAgeSec = latestSnap?.observed_at ? Math.floor((Date.now() - new Date(latestSnap.observed_at).getTime()) / 1000) : null;
@@ -1891,9 +1894,9 @@ async function handleApiRoute(pathname, method, request, env, url) {
     } else if (checkpointAccounts > 0 && activeAccounts === 0) {
       overallStatus = 'CRITICAL_NO_AUTH';
       message = 'Tất cả Cookie nick phụ đã hết hạn phiên (NEEDS_REAUTH). Cần cập nhật cookie mới.';
-    } else if (totalTargets > 0 && failingTargets === totalTargets) {
+    } else if (actionableTargets > 0 && activeTargets === 0) {
       overallStatus = 'UNHEALTHY';
-      message = 'Tất cả bài viết đang gặp lỗi kết nối hoặc thiếu quyền truy cập.';
+      message = 'Không có bài viết nào đang được giám sát thành công. Cần kiểm tra quyền truy cập hoặc Cookie.';
     } else if (zeroStreakTargets > 0) {
       overallStatus = 'DEGRADED';
       message = `Phát hiện ${zeroStreakTargets} bài viết bị kẹt ở mức 0 tương tác (cần kiểm tra quyền truy cập hoặc Cookie).`;
@@ -1911,11 +1914,14 @@ async function handleApiRoute(pathname, method, request, env, url) {
       integrity: {
         totalTargets,
         activeTargets,
+        actionableTargets,
         failingTargets,
         targetsWithErrors,
         zeroStreakTargets,
         activeAccounts,
         checkpointAccounts,
+        activeCookieAccounts,
+        checkpointCookieAccounts,
         anomalyCount,
         lastSnapshotAt: latestSnap?.observed_at || null,
         lastSnapshotAgeSec,
@@ -1924,7 +1930,7 @@ async function handleApiRoute(pathname, method, request, env, url) {
       },
       platform: 'Cloudflare Edge 24/7',
       timestamp: new Date().toISOString()
-    }, (overallStatus === 'CRITICAL_NO_AUTH' || overallStatus === 'UNHEALTHY') ? 503 : 200);
+    }, overallStatus === 'HEALTHY' ? 200 : 503);
   }
 
   return jsonResponse({ error: 'Endpoint not found' }, 404);

@@ -112,6 +112,7 @@ test('Worker Integrity: Production Exports & Handlers', async (t) => {
     );
     CREATE TABLE accounts (
       id INTEGER PRIMARY KEY,
+      account_type TEXT,
       status TEXT
     );
     CREATE TABLE snapshots (
@@ -193,6 +194,65 @@ test('Worker Integrity: Sidecar snapshot requires the X-Sidecar-Secret header', 
     body
   }), env);
   assert.equal(response.status, 401);
+});
+
+test('Worker Integrity: health fails closed when actionable targets have no active monitoring', async () => {
+  const worker = await import('../src/worker.js');
+  const { worker_default } = worker;
+  const db = new DatabaseSync(':memory:');
+  db.exec(`
+    CREATE TABLE monitored_targets (
+      id INTEGER PRIMARY KEY,
+      status TEXT,
+      last_error TEXT,
+      latest_reactions INTEGER DEFAULT 0,
+      latest_comments INTEGER DEFAULT 0,
+      latest_shares INTEGER DEFAULT 0,
+      baseline_reactions INTEGER DEFAULT 0,
+      baseline_comments INTEGER DEFAULT 0,
+      baseline_shares INTEGER DEFAULT 0
+    );
+    CREATE TABLE accounts (id INTEGER PRIMARY KEY, account_type TEXT, status TEXT);
+    CREATE TABLE snapshots (
+      id INTEGER PRIMARY KEY,
+      target_id INTEGER,
+      observed_at TEXT,
+      total_reactions INTEGER,
+      total_comments INTEGER,
+      total_shares INTEGER,
+      delta_reactions INTEGER,
+      delta_comments INTEGER,
+      delta_shares INTEGER
+    );
+    INSERT INTO monitored_targets (id, status, last_error) VALUES (1, 'NEEDS_AUTH', 'cookie expired');
+    INSERT INTO accounts (id, account_type, status) VALUES (1, 'cookie', 'NEEDS_REAUTH');
+  `);
+  const d1Mock = {
+    prepare(sql) {
+      const stmt = db.prepare(sql);
+      const api = {
+        async first(...args) { return stmt.get(...args); },
+        async all(...args) { return { results: stmt.all(...args) }; },
+        async run(...args) { const result = stmt.run(...args); return { meta: { changes: result.changes } }; },
+        bind(...args) { return {
+        async first() { return stmt.get(...args); },
+        async all() { return { results: stmt.all(...args) }; },
+        async run() { const result = stmt.run(...args); return { meta: { changes: result.changes } }; }
+        }; }
+      };
+      return api;
+    }
+  };
+  const env = { DB: d1Mock, ENCRYPTION_MASTER_KEY: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' };
+  const response = await worker_default.fetch(new Request('https://example.test/api/health'), env);
+  const responseText = await response.text();
+  const data = JSON.parse(responseText);
+  if (response.status === 500) console.error('health fixture error:', responseText);
+  assert.equal(response.status, 503);
+  assert.equal(data.status, 'CRITICAL_NO_AUTH');
+  assert.equal(data.integrity.actionableTargets, 1);
+  assert.equal(data.integrity.activeCookieAccounts, 0);
+  assert.equal(data.integrity.checkpointCookieAccounts, 1);
 });
 
 test('Worker Integrity: Multi-Metric Data Quality Gate accurately rejects anomalous drops', () => {
