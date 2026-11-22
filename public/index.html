@@ -92,11 +92,37 @@
         <span>Tài khoản Meta</span>
       </button>
 
-      <button onclick="switchTab('alerts')" class="relative px-3.5 py-2 bg-surface hover:bg-surface-elevated active:scale-95 transition text-txt-body text-xs font-medium rounded-lg border border-surface-border flex items-center gap-2">
-        <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
-        <span>Cảnh báo</span>
-        <span id="unreadAlertCount" class="hidden absolute -top-1 -right-1 px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-rose-500 text-white shadow-sm">0</span>
-      </button>
+      <!-- Interactive Notification Bell & Dropdown (Prompt 03) -->
+      <div class="relative">
+        <button id="btnNotificationBell" onclick="toggleNotificationDropdown()" class="relative p-2 bg-surface hover:bg-surface-elevated active:scale-95 transition text-txt-body rounded-xl border border-surface-border flex items-center justify-center cursor-pointer shadow-sm" title="Trung tâm thông báo">
+          <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+          <span id="unreadAlertCount" class="hidden absolute -top-1 -right-1 px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-rose-500 text-white shadow-sm font-mono animate-pulse">0</span>
+        </button>
+
+        <!-- Dropdown Popup (5 latest notifications) -->
+        <div id="notificationDropdown" class="hidden absolute right-0 mt-2 w-80 sm:w-96 surface-card rounded-2xl border border-surface-border shadow-2xl z-50 overflow-hidden flex flex-col">
+          <div class="p-3.5 border-b border-surface-border flex items-center justify-between bg-surface-elevated/40">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-bold text-txt-title">Thông báo</span>
+              <span id="dropdownUnreadBadge" class="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20 font-bold font-mono">0 chưa đọc</span>
+            </div>
+            <button onclick="markAllNotificationsRead()" class="text-[11px] text-brand-cyan hover:underline transition">Đánh dấu tất cả đã đọc</button>
+          </div>
+          <div id="dropdownNotificationList" class="divide-y border-surface-border max-h-72 overflow-y-auto text-xs">
+            <div class="p-6 text-center text-txt-sub">Đang tải thông báo...</div>
+          </div>
+          <div class="p-2.5 border-t border-surface-border bg-surface-elevated/30 flex items-center justify-between">
+            <button onclick="requestBrowserNotificationPermission()" class="text-[11px] text-txt-sub hover:text-brand-cyan flex items-center gap-1 transition">
+              <svg class="w-3.5 h-3.5 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+              <span>Bật thông báo Desktop</span>
+            </button>
+            <button onclick="openAlertsCenterFromDropdown()" class="text-[11px] text-brand-cyan font-semibold hover:underline flex items-center gap-1 transition">
+              <span>Xem tất cả</span>
+              <svg class="w-3 h-3 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+            </button>
+          </div>
+        </div>
+      </div>
 
       <!-- Dark / Light Theme Toggle Switch -->
       <button onclick="toggleTheme()" id="themeToggleBtn" title="Chuyển chế độ Dark / Light" class="p-2 bg-surface hover:bg-surface-elevated active:scale-95 transition text-txt-body rounded-lg border border-surface-border flex items-center justify-center">
@@ -122,8 +148,8 @@
       <span>So sánh nội dung</span>
     </button>
     <button onclick="switchTab('alerts')" id="tab-alerts" class="py-3.5 border-b-2 border-transparent text-txt-sub hover:text-txt-body font-medium flex items-center gap-2 transition">
-      <svg class="w-4 h-4 text-txt-sub" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-      <span>Nhật ký cảnh báo</span>
+      <svg class="w-4 h-4 text-txt-sub" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+      <span>Trung tâm thông báo (<span id="tabAlertsCount">0</span>)</span>
     </button>
   </nav>
 
@@ -648,34 +674,162 @@
       </div>
     </div>
 
-    <!-- ================= TAB: ALERTS ================= -->
-    <div id="view-alerts" class="hidden space-y-4">
-      <div class="surface-card rounded-xl p-5">
-        <div class="flex items-center justify-between mb-4">
-          <div>
-            <h2 class="text-sm font-semibold text-txt-title">Nhật ký biến động và cảnh báo bất thường</h2>
-            <p class="text-xs text-txt-sub">Phát hiện khi chỉ số tương tác vượt ngưỡng bùng nổ</p>
+    <!-- ================= TAB: ALERTS (REDESIGNED: TRUNG TÂM THÔNG BÁO) ================= -->
+    <div id="view-alerts" class="hidden space-y-6">
+
+      <!-- HEADER TRUNG TÂM THÔNG BÁO -->
+      <div class="surface-card rounded-2xl p-5 border border-surface-border flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div>
+          <div class="flex items-center gap-3">
+            <h2 class="text-lg font-extrabold tracking-tight text-txt-title">Trung tâm thông báo & Cảnh báo</h2>
+            <span class="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/30 inline-flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-brand-cyan animate-pulse"></span>
+              <span>Giám sát bất thường 24/7</span>
+            </span>
           </div>
-          <button onclick="fetchAlerts()" class="px-3.5 py-1.5 bg-surface-elevated hover:bg-surface text-txt-body rounded-lg text-xs border border-surface-border">Làm mới</button>
+          <p class="text-xs text-txt-sub mt-1">Theo dõi các biến động, sự kiện quan trọng và tình trạng giám sát Facebook tức thời</p>
         </div>
+
+        <div class="flex flex-wrap items-center gap-2.5">
+          <button onclick="markAllNotificationsRead()" class="px-3.5 py-2 bg-surface-elevated hover:bg-surface text-txt-body text-xs font-semibold rounded-xl border border-surface-border flex items-center gap-1.5 transition active:scale-95 shadow-sm cursor-pointer" title="Đánh dấu tất cả đã đọc">
+            <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+            <span>Đánh dấu đã đọc hết</span>
+          </button>
+
+          <button onclick="openAlertRulesModal()" class="px-3.5 py-2 bg-brand-blue hover:bg-brand-ocean text-white text-xs font-semibold rounded-xl border border-brand-cyan/20 flex items-center gap-1.5 transition active:scale-95 shadow-sm cursor-pointer" title="Cấu hình quy tắc cảnh báo">
+            <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+            <span>Quy tắc cảnh báo</span>
+          </button>
+
+          <button onclick="requestBrowserNotificationPermission()" class="px-3.5 py-2 bg-surface-elevated hover:bg-surface text-txt-body text-xs font-semibold rounded-xl border border-surface-border flex items-center gap-1.5 transition active:scale-95 shadow-sm cursor-pointer" title="Bật thông báo ngoài Desktop">
+            <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+            <span>Thông báo Desktop</span>
+          </button>
+
+          <button id="btnRefreshAlerts" onclick="fetchAlerts()" class="p-2 bg-surface-elevated hover:bg-surface text-xs text-txt-body rounded-xl border border-surface-border flex items-center gap-1 transition active:scale-95 shadow-sm cursor-pointer" title="Làm mới">
+            <svg id="refreshAlertsIcon" class="w-4 h-4 text-brand-cyan transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- 4 THẺ KPI THÔNG BÁO (Section III.2) -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <!-- KPI 1: TOTAL_NOTIFICATIONS -->
+        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between">
+          <div class="flex items-center justify-between text-txt-sub">
+            <span class="text-xs font-semibold">Tổng thông báo</span>
+            <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+          </div>
+          <div class="mt-2 text-2xl font-bold text-txt-title" id="alertKpiTotal">0</div>
+          <div class="mt-1 text-[11px] text-txt-sub">Ghi nhận toàn hệ thống</div>
+        </div>
+
+        <!-- KPI 2: UNREAD_NOTIFICATIONS -->
+        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between">
+          <div class="flex items-center justify-between text-txt-sub">
+            <span class="text-xs font-semibold">Thông báo chưa đọc</span>
+            <span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+          </div>
+          <div class="mt-2 text-2xl font-bold text-rose-400" id="alertKpiUnread">0</div>
+          <div class="mt-1 text-[11px] text-rose-400 font-medium">Cần người dùng xem</div>
+        </div>
+
+        <!-- KPI 3: CRITICAL_ALERTS -->
+        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between">
+          <div class="flex items-center justify-between text-txt-sub">
+            <span class="text-xs font-semibold">Cảnh báo nghiêm trọng</span>
+            <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+          </div>
+          <div class="mt-2 text-2xl font-bold text-amber-400" id="alertKpiCritical">0</div>
+          <div class="mt-1 text-[11px] text-txt-sub">Chưa giải quyết (Critical)</div>
+        </div>
+
+        <!-- KPI 4: OPEN_ALERTS -->
+        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between">
+          <div class="flex items-center justify-between text-txt-sub">
+            <span class="text-xs font-semibold">Cần xử lý (Open)</span>
+            <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+          </div>
+          <div class="mt-2 text-2xl font-bold text-brand-cyan" id="alertKpiOpen">0</div>
+          <div class="mt-1 text-[11px] text-txt-sub font-medium">Đang chờ xác nhận/xử lý</div>
+        </div>
+      </div>
+
+      <!-- BỘ LỌC ĐA TIÊU CHÍ (Section III.1) -->
+      <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-wrap gap-3 items-center justify-between">
+        <div class="flex flex-wrap items-center gap-2.5 flex-1">
+          <div class="relative min-w-[220px] flex-1">
+            <input type="text" id="alertSearchInput" oninput="debounceFetchAlerts()" placeholder="Tìm nội dung thông báo, loại sự kiện, URL hoặc tác giả..." class="w-full rounded-xl px-3.5 py-2 text-xs placeholder-txt-muted bg-surface-elevated border border-surface-border focus:border-brand-cyan transition text-txt-body">
+          </div>
+          <select id="alertReadFilter" onchange="fetchAlerts(1)" class="rounded-xl px-3 py-2 text-xs bg-surface-elevated border border-surface-border text-txt-body">
+            <option value="">Tất cả (Đã đọc & Chưa đọc)</option>
+            <option value="unread" selected>Chỉ thông báo chưa đọc</option>
+            <option value="read">Đã đọc</option>
+          </select>
+          <select id="alertStatusFilter" onchange="fetchAlerts(1)" class="rounded-xl px-3 py-2 text-xs bg-surface-elevated border border-surface-border text-txt-body">
+            <option value="">Tất cả trạng thái xử lý</option>
+            <option value="OPEN">Cần xử lý (OPEN)</option>
+            <option value="ACKNOWLEDGED">Đã tiếp nhận (ACKNOWLEDGED)</option>
+            <option value="RESOLVED">Đã giải quyết (RESOLVED)</option>
+          </select>
+          <select id="alertSeverityFilter" onchange="fetchAlerts(1)" class="rounded-xl px-3 py-2 text-xs bg-surface-elevated border border-surface-border text-txt-body">
+            <option value="">Tất cả mức độ</option>
+            <option value="CRITICAL">Nghiêm trọng (CRITICAL)</option>
+            <option value="HIGH">Quan trọng (HIGH)</option>
+            <option value="WARNING">Cần chú ý (WARNING)</option>
+            <option value="INFO">Thông tin (INFO)</option>
+          </select>
+          <select id="alertGroupFilter" onchange="fetchAlerts(1)" class="rounded-xl px-3 py-2 text-xs bg-surface-elevated border border-surface-border text-txt-body">
+            <option value="">Tất cả nhóm sự kiện</option>
+            <option value="interaction">Tương tác Facebook (Spikes/Viral)</option>
+            <option value="suspicious">Tương tác nghi vấn (Suspicious)</option>
+            <option value="monitor">Trạng thái giám sát (State changes)</option>
+            <option value="connection">Quyền & Kết nối (Auth/Tokens)</option>
+            <option value="system">Hệ thống (System/Scheduler)</option>
+          </select>
+          <select id="alertTimeframeFilter" onchange="fetchAlerts(1)" class="rounded-xl px-3 py-2 text-xs bg-surface-elevated border border-surface-border text-txt-body">
+            <option value="ALL">Toàn thời gian</option>
+            <option value="1H">1 Giờ qua</option>
+            <option value="24H">24 Giờ qua</option>
+            <option value="7D">7 Ngày qua</option>
+            <option value="30D">30 Ngày qua</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- BẢNG DANH SÁCH THÔNG BÁO & CẢNH BÁO -->
+      <div class="surface-card rounded-2xl overflow-hidden border border-surface-border shadow-sm">
         <div class="overflow-x-auto">
           <table class="w-full text-left text-xs">
             <thead class="bg-surface-elevated text-txt-sub font-semibold uppercase tracking-wider border-b border-surface-border">
               <tr>
-                <th class="p-3">Thời gian phát hiện</th>
-                <th class="p-3">Mức độ</th>
-                <th class="p-3">Loại cảnh báo</th>
-                <th class="p-3">Bài viết liên quan</th>
-                <th class="p-3">Nội dung biến động</th>
-                <th class="p-3 text-right">Trạng thái</th>
+                <th class="p-3.5">Mức độ / Nhóm</th>
+                <th class="p-3.5">Tiêu đề & Nội dung biến động</th>
+                <th class="p-3.5">Bài viết liên quan</th>
+                <th class="p-3.5">Thời gian phát hiện</th>
+                <th class="p-3.5 text-center">Trạng thái xử lý</th>
+                <th class="p-3.5 text-right">Thao tác</th>
               </tr>
             </thead>
             <tbody id="alertsTableBody" class="divide-y border-surface-border">
-              <!-- Populated dynamically -->
+              <tr>
+                <td colspan="6" class="p-8 text-center text-txt-sub">Đang tải trung tâm thông báo...</td>
+              </tr>
             </tbody>
           </table>
         </div>
+
+        <!-- Phân trang (Pagination) -->
+        <div class="p-3.5 bg-surface-elevated/40 border-t border-surface-border flex items-center justify-between text-xs text-txt-sub">
+          <div id="alertPaginationInfo">Hiển thị 0 thông báo</div>
+          <div class="flex items-center gap-2" id="alertPaginationControls">
+            <button id="btnAlertPrevPage" onclick="changeAlertPage(-1)" class="px-3 py-1 bg-surface hover:bg-surface-elevated rounded-lg border border-surface-border text-txt-body font-medium transition disabled:opacity-40 disabled:cursor-not-allowed">Trang trước</button>
+            <span id="alertPageCurrent" class="font-semibold text-txt-title font-mono">1</span>
+            <button id="btnAlertNextPage" onclick="changeAlertPage(1)" class="px-3 py-1 bg-surface hover:bg-surface-elevated rounded-lg border border-surface-border text-txt-body font-medium transition disabled:opacity-40 disabled:cursor-not-allowed">Trang sau</button>
+          </div>
+        </div>
       </div>
+
     </div>
   </main>
 
@@ -1155,6 +1309,229 @@
         <button id="confirmAcceptBtn" onclick="closeConfirmModal(true)" class="py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-xl shadow-md shadow-rose-600/30 transition active:scale-95">
           Xác nhận xóa
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL: ALERT DETAIL & DRAWER (Section VII) ================= -->
+  <div id="alertDetailModal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="surface-card border border-surface-border rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl max-h-[92vh] flex flex-col">
+      <div class="flex items-start justify-between border-b border-surface-border pb-3">
+        <div class="flex items-center gap-3">
+          <div id="alertDetailIconBox" class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"></div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 id="alertDetailTitle" class="text-sm font-bold text-txt-title"></h3>
+              <span id="alertDetailSeverityBadge" class="text-xs px-2 py-0.5 rounded-full font-bold uppercase"></span>
+              <span id="alertDetailStatusBadge" class="text-xs px-2 py-0.5 rounded-full font-bold uppercase"></span>
+            </div>
+            <p id="alertDetailTime" class="text-xs text-txt-sub mt-0.5 font-mono"></p>
+          </div>
+        </div>
+        <button onclick="closeAlertDetailModal()" class="text-txt-sub hover:text-txt-title p-1.5 rounded-lg hover:bg-surface-elevated transition">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+      </div>
+
+      <!-- Detail Body -->
+      <div class="space-y-4 flex-1 overflow-y-auto pr-1 text-xs">
+        <!-- Related Facebook Target Card -->
+        <div class="bg-surface rounded-xl p-3 border border-surface-border flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <img id="alertDetailTargetAvatar" src="" alt="avatar" referrerpolicy="no-referrer" class="w-9 h-9 rounded-lg object-cover bg-gray-800 border border-surface-border shrink-0">
+            <div class="min-w-0">
+              <div id="alertDetailTargetName" class="font-semibold text-txt-title truncate"></div>
+              <a id="alertDetailTargetUrl" href="#" target="_blank" class="text-[11px] text-brand-cyan hover:underline truncate block"></a>
+            </div>
+          </div>
+          <button id="btnAlertJumpToTarget" onclick="jumpToTargetFromAlert()" class="px-2.5 py-1.5 bg-surface-elevated hover:bg-surface text-brand-cyan rounded-lg font-semibold shrink-0 border border-surface-border flex items-center gap-1.5 transition">
+            <span>Xem bài viết</span>
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+          </button>
+        </div>
+
+        <!-- Metric Fluctuations (Before / After / Delta / Threshold) -->
+        <div class="grid grid-cols-4 gap-2 text-center">
+          <div class="bg-surface-elevated/60 p-2.5 rounded-xl border border-surface-border">
+            <span class="text-txt-sub text-[11px]">Mốc trước</span>
+            <div id="alertDetailOldVal" class="text-sm font-bold text-txt-title mt-0.5">0</div>
+          </div>
+          <div class="bg-surface-elevated/60 p-2.5 rounded-xl border border-surface-border">
+            <span class="text-txt-sub text-[11px]">Mốc ghi nhận</span>
+            <div id="alertDetailNewVal" class="text-sm font-bold text-txt-title mt-0.5">0</div>
+          </div>
+          <div class="bg-surface-elevated/60 p-2.5 rounded-xl border border-surface-border">
+            <span class="text-txt-sub text-[11px]">Độ biến thiên (Delta)</span>
+            <div id="alertDetailDeltaVal" class="text-sm font-bold text-brand-cyan mt-0.5">+0</div>
+          </div>
+          <div class="bg-surface-elevated/60 p-2.5 rounded-xl border border-surface-border">
+            <span class="text-txt-sub text-[11px]">Ngưỡng kích hoạt</span>
+            <div id="alertDetailThresholdVal" class="text-sm font-bold text-amber-400 mt-0.5">0</div>
+          </div>
+        </div>
+
+        <!-- Explanation & Analysis Box -->
+        <div class="bg-surface rounded-xl p-3.5 border border-surface-border space-y-1.5">
+          <span class="font-semibold text-txt-title flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            <span>Giải thích nguyên nhân & Phân tích bất thường</span>
+          </span>
+          <p id="alertDetailExplanation" class="text-txt-body leading-relaxed"></p>
+        </div>
+
+        <!-- 3 Lifecycles Status Row -->
+        <div class="bg-surface rounded-xl p-3 border border-surface-border space-y-2">
+          <span class="font-semibold text-txt-title">Vòng đời thông báo & Xử lý (3 Chiều độc lập)</span>
+          <div class="grid grid-cols-2 gap-2">
+            <div class="p-2 rounded-lg bg-surface-elevated/50 flex items-center justify-between">
+              <span class="text-txt-sub">Vòng đời Đọc:</span>
+              <span id="alertDetailReadLife" class="font-semibold"></span>
+            </div>
+            <div class="p-2 rounded-lg bg-surface-elevated/50 flex items-center justify-between">
+              <span class="text-txt-sub">Vòng đời Cảnh báo:</span>
+              <span id="alertDetailResolutionLife" class="font-semibold"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detail Actions Footer -->
+      <div class="border-t border-surface-border pt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div class="flex items-center gap-2">
+          <button id="btnToggleReadSingle" onclick="toggleAlertReadSingle()" class="px-3 py-1.5 bg-surface-elevated hover:bg-surface text-txt-body rounded-lg font-medium border border-surface-border transition">
+            Đánh dấu chưa đọc
+          </button>
+          <button id="btnAckSingle" onclick="ackAlertSingle()" class="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg font-semibold transition">
+            Xác nhận cảnh báo
+          </button>
+          <button id="btnResolveSingle" onclick="resolveAlertSingle()" class="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg font-semibold transition">
+            Đánh dấu giải quyết
+          </button>
+        </div>
+        <button onclick="closeAlertDetailModal()" class="px-4 py-1.5 bg-surface-elevated hover:bg-surface text-txt-body rounded-lg font-medium border border-surface-border transition">
+          Đóng
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL: ALERT RULES CONFIGURATION (Section VI) ================= -->
+  <div id="alertRulesModal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="surface-card border border-surface-border rounded-2xl max-w-3xl w-full p-6 space-y-4 shadow-2xl max-h-[92vh] flex flex-col">
+      <div class="flex items-center justify-between border-b border-surface-border pb-3">
+        <div>
+          <h3 class="text-sm font-bold text-txt-title">Cấu hình quy tắc cảnh báo (Alert Rules Engine)</h3>
+          <p class="text-xs text-txt-sub">Tùy biến điều kiện kích hoạt, ngưỡng, thời gian cooldown và kênh gửi</p>
+        </div>
+        <button onclick="closeAlertRulesModal()" class="text-txt-sub hover:text-txt-title p-1.5 rounded-lg hover:bg-surface-elevated transition">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+      </div>
+
+      <div class="space-y-4 flex-1 overflow-y-auto pr-1 text-xs">
+        <!-- Add / Edit Rule Form -->
+        <div class="bg-surface rounded-xl p-4 border border-brand-cyan/30 space-y-3">
+          <div class="flex items-center justify-between">
+            <h4 class="font-bold text-brand-cyan flex items-center gap-1.5">
+              <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+              <span>Thêm mới quy tắc cảnh báo:</span>
+            </h4>
+            <span class="text-[11px] text-txt-sub">Hỗ trợ chống spam & cooldown</span>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label class="block text-txt-sub mb-1">Tên quy tắc:</label>
+              <input type="text" id="ruleNameInput" placeholder="VD: Bùng nổ cảm xúc Post A" class="w-full rounded-lg px-2.5 py-1.5 bg-surface-elevated border border-surface-border text-txt-body">
+            </div>
+            <div>
+              <label class="block text-txt-sub mb-1">Áp dụng cho:</label>
+              <select id="ruleTargetSelect" class="w-full rounded-lg px-2.5 py-1.5 bg-surface-elevated border border-surface-border text-txt-body">
+                <option value="">Toàn bộ bài viết (Global Rule)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-txt-sub mb-1">Chỉ số theo dõi (Metric):</label>
+              <select id="ruleMetricSelect" class="w-full rounded-lg px-2.5 py-1.5 bg-surface-elevated border border-surface-border text-txt-body">
+                <option value="reactions">Cảm xúc (Reactions)</option>
+                <option value="comments">Bình luận (Comments)</option>
+                <option value="shares">Chia sẻ (Shares)</option>
+                <option value="system">Trạng thái / Lỗi hệ thống</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div>
+              <label class="block text-txt-sub mb-1">Điều kiện:</label>
+              <select id="ruleConditionSelect" class="w-full rounded-lg px-2.5 py-1.5 bg-surface-elevated border border-surface-border text-txt-body">
+                <option value="gt_count">Tăng từ N lượt (+)</option>
+                <option value="gt_total">Vượt tổng số N</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-txt-sub mb-1">Ngưỡng kích hoạt:</label>
+              <input type="number" id="ruleThresholdInput" value="50" class="w-full rounded-lg px-2.5 py-1.5 bg-surface-elevated border border-surface-border text-txt-body font-mono">
+            </div>
+            <div>
+              <label class="block text-txt-sub mb-1">Khung giờ quan sát:</label>
+              <select id="ruleTimeWindowSelect" class="w-full rounded-lg px-2.5 py-1.5 bg-surface-elevated border border-surface-border text-txt-body">
+                <option value="1M">1 Phút (1M)</option>
+                <option value="5M" selected>5 Phút (5M)</option>
+                <option value="15M">15 Phút (15M)</option>
+                <option value="30M">30 Phút (30M)</option>
+                <option value="1H">1 Giờ (1H)</option>
+                <option value="24H">24 Giờ (24H)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-txt-sub mb-1">Mức ưu tiên:</label>
+              <select id="ruleSeveritySelect" class="w-full rounded-lg px-2.5 py-1.5 bg-surface-elevated border border-surface-border text-txt-body">
+                <option value="INFO">Thông tin (INFO)</option>
+                <option value="WARNING" selected>Cần chú ý (WARNING)</option>
+                <option value="HIGH">Quan trọng (HIGH)</option>
+                <option value="CRITICAL">Nghiêm trọng (CRITICAL)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3 pt-1">
+            <div>
+              <label class="block text-txt-sub mb-1">Thời gian Cooldown chống spam (giây):</label>
+              <input type="number" id="ruleCooldownInput" value="300" class="w-full rounded-lg px-2.5 py-1.5 bg-surface-elevated border border-surface-border text-txt-body font-mono">
+            </div>
+            <div>
+              <label class="block text-txt-sub mb-1">Kênh thông báo:</label>
+              <div class="flex items-center gap-3 mt-1.5">
+                <label class="inline-flex items-center gap-1.5 text-txt-body cursor-pointer">
+                  <input type="checkbox" id="chkChannelInApp" checked disabled class="rounded text-brand-cyan">
+                  <span>In-App</span>
+                </label>
+                <label class="inline-flex items-center gap-1.5 text-txt-body cursor-pointer">
+                  <input type="checkbox" id="chkChannelBrowser" checked class="rounded text-brand-cyan">
+                  <span>Desktop Native</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex justify-end pt-1">
+            <button onclick="submitCreateAlertRule()" class="px-4 py-2 bg-brand-blue hover:bg-brand-ocean text-white font-semibold rounded-lg border border-brand-cyan/20 transition active:scale-95 shadow-sm">
+              Lưu quy tắc mới
+            </button>
+          </div>
+        </div>
+
+        <!-- Rules List -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <h4 class="font-bold text-txt-title">Danh sách quy tắc đang hoạt động:</h4>
+            <span id="rulesCountBadge" class="text-[11px] text-txt-sub">0 quy tắc</span>
+          </div>
+          <div id="alertRulesListContainer" class="divide-y border border-surface-border rounded-xl overflow-hidden max-h-60 overflow-y-auto">
+            <div class="p-6 text-center text-txt-sub">Đang tải quy tắc cảnh báo...</div>
+          </div>
+        </div>
       </div>
     </div>
   </div>

@@ -22,7 +22,7 @@ class AlertEngine {
   }
 
   /**
-   * Evaluate a newly processed snapshot against alert rules
+   * Evaluate a newly processed snapshot against alert rules & dynamic configs
    */
   evaluate(processedData) {
     if (processedData.isFirstRun) return []; // Skip baseline run
@@ -33,8 +33,9 @@ class AlertEngine {
     const detectedAt = processedData.observedAt || new Date().toISOString();
     const generatedAlerts = [];
 
-    // 1. Reaction Spike
+    // 1. Group 1: REACTION_SPIKE
     if (deltas.reactions >= config.reaction_spike_threshold) {
+      const severity = deltas.reactions >= config.reaction_spike_threshold * 2 ? 'CRITICAL' : 'WARNING';
       const alert = this.recordAlert({
         targetId,
         alertType: 'REACTION_SPIKE',
@@ -43,15 +44,23 @@ class AlertEngine {
         newVal: processedData.totalReactions,
         delta: deltas.reactions,
         threshold: config.reaction_spike_threshold,
-        severity: deltas.reactions >= config.reaction_spike_threshold * 2 ? 'CRITICAL' : 'WARNING',
-        message: `Lượt cảm xúc tăng vọt (+${deltas.reactions}) trong lần đồng bộ vừa qua.`,
-        detectedAt
+        severity,
+        message: `Lượt cảm xúc tăng vọt (+${deltas.reactions.toLocaleString()}) trong lần đồng bộ vừa qua.`,
+        detectedAt,
+        payload: {
+          metric: 'reactions',
+          before: processedData.totalReactions - deltas.reactions,
+          after: processedData.totalReactions,
+          timeWindow: '5M',
+          explanation: `Lượt cảm xúc tăng vượt ngưỡng ${config.reaction_spike_threshold} được thiết lập.`
+        }
       });
       generatedAlerts.push(alert);
     }
 
-    // 2. Comment Surge
+    // 2. Group 1: COMMENT_SURGE
     if (deltas.comments >= config.comment_surge_threshold) {
+      const severity = deltas.comments >= config.comment_surge_threshold * 2 ? 'HIGH' : 'WARNING';
       const alert = this.recordAlert({
         targetId,
         alertType: 'COMMENT_SURGE',
@@ -60,14 +69,21 @@ class AlertEngine {
         newVal: processedData.totalComments,
         delta: deltas.comments,
         threshold: config.comment_surge_threshold,
-        severity: 'WARNING',
-        message: `Lượng bình luận tăng đột biến (+${deltas.comments}) trên bài viết.`,
-        detectedAt
+        severity,
+        message: `Lượng bình luận tăng đột biến (+${deltas.comments.toLocaleString()}) trên bài viết.`,
+        detectedAt,
+        payload: {
+          metric: 'comments',
+          before: processedData.totalComments - deltas.comments,
+          after: processedData.totalComments,
+          timeWindow: '5M',
+          explanation: `Số lượng bình luận mới tăng vượt ngưỡng quy định ${config.comment_surge_threshold}.`
+        }
       });
       generatedAlerts.push(alert);
     }
 
-    // 3. Share Burst
+    // 3. Group 1: SHARE_BURST
     if (deltas.shares >= config.share_burst_threshold) {
       const alert = this.recordAlert({
         targetId,
@@ -78,14 +94,21 @@ class AlertEngine {
         delta: deltas.shares,
         threshold: config.share_burst_threshold,
         severity: 'CRITICAL',
-        message: `Lượt chia sẻ tăng nhanh bất thường (+${deltas.shares}).`,
-        detectedAt
+        message: `Lượt chia sẻ lan truyền nhanh bất thường (+${deltas.shares.toLocaleString()}).`,
+        detectedAt,
+        payload: {
+          metric: 'shares',
+          before: processedData.totalShares - deltas.shares,
+          after: processedData.totalShares,
+          timeWindow: '5M',
+          explanation: `Lượt chia sẻ tăng vượt ngưỡng lan truyền ${config.share_burst_threshold}.`
+        }
       });
       generatedAlerts.push(alert);
     }
 
-    // 4. Viral Shift (from dormant to high growth)
-    if (processedData.growthRates.rate5m >= 50 && deltas.reactions >= 15) {
+    // 4. Group 1: VIRAL_SHIFT (Tăng trưởng bùng nổ)
+    if (processedData.growthRates && processedData.growthRates.rate5m >= 50 && deltas.reactions >= 15) {
       const alert = this.recordAlert({
         targetId,
         alertType: 'VIRAL_SHIFT',
@@ -96,9 +119,123 @@ class AlertEngine {
         threshold: 50,
         severity: 'CRITICAL',
         message: `Bài viết chuyển trạng thái bùng nổ: Tốc độ tăng trưởng 5 phút đạt +${processedData.growthRates.rate5m}%.`,
-        detectedAt
+        detectedAt,
+        payload: {
+          metric: 'growth_rate_5m',
+          rate: processedData.growthRates.rate5m,
+          deltaReactions: deltas.reactions,
+          timeWindow: '5M',
+          explanation: 'Tốc độ tăng trưởng vượt ngưỡng viral 50% trong khung giờ 5 phút.'
+        }
       });
       generatedAlerts.push(alert);
+    }
+
+    // 5. Group 1: ENGAGEMENT_DROP (Tương tác sụt giảm do gỡ like/xóa comment)
+    if (deltas.reactions <= -10 || deltas.comments <= -10) {
+      const dropMetric = deltas.reactions <= -10 ? 'reactions' : 'comments';
+      const dropDelta = deltas.reactions <= -10 ? deltas.reactions : deltas.comments;
+      const alert = this.recordAlert({
+        targetId,
+        alertType: 'ENGAGEMENT_DROP',
+        metricName: dropMetric,
+        oldVal: (dropMetric === 'reactions' ? processedData.totalReactions : processedData.totalComments) - dropDelta,
+        newVal: dropMetric === 'reactions' ? processedData.totalReactions : processedData.totalComments,
+        delta: dropDelta,
+        threshold: 10,
+        severity: 'INFO',
+        message: `Ghi nhận tương tác giảm (${dropDelta}) do người dùng gỡ cảm xúc hoặc xóa bình luận.`,
+        detectedAt,
+        payload: {
+          metric: dropMetric,
+          delta: dropDelta,
+          timeWindow: '5M',
+          explanation: 'Biến động âm thực tế được snapshot ghi nhận trung thực theo Meta API.'
+        }
+      });
+      generatedAlerts.push(alert);
+    }
+
+    // 6. Group 2: SUSPICIOUS_GROWTH (Tăng trưởng bất thường)
+    if (processedData.growthRates && processedData.growthRates.rate5m >= 200 && deltas.reactions >= 50) {
+      const alert = this.recordAlert({
+        targetId,
+        alertType: 'SUSPICIOUS_GROWTH',
+        metricName: 'growth_anomaly',
+        oldVal: processedData.totalReactions - deltas.reactions,
+        newVal: processedData.totalReactions,
+        delta: deltas.reactions,
+        threshold: 50,
+        severity: 'HIGH',
+        message: `Phát hiện tăng trưởng đột biến bất thường (+${deltas.reactions.toLocaleString()} tương tác trong 5 phút).`,
+        detectedAt,
+        payload: {
+          metric: 'suspicious_growth',
+          growthRate: processedData.growthRates.rate5m,
+          delta: deltas.reactions,
+          timeWindow: '5M',
+          explanation: 'Tốc độ gia tăng vượt quá 200% so với mốc quan sát thông thường.'
+        }
+      });
+      generatedAlerts.push(alert);
+    }
+
+    // 7. Custom Rules from alert_rules table
+    try {
+      const customRules = this.db.prepare(`
+        SELECT * FROM alert_rules 
+        WHERE (target_id = ? OR target_id IS NULL) AND is_active = 1
+      `).all(targetId);
+
+      for (const rule of customRules) {
+        let currentDelta = 0;
+        let currentTotal = 0;
+        if (rule.metric === 'reactions') {
+          currentDelta = deltas.reactions;
+          currentTotal = processedData.totalReactions;
+        } else if (rule.metric === 'comments') {
+          currentDelta = deltas.comments;
+          currentTotal = processedData.totalComments;
+        } else if (rule.metric === 'shares') {
+          currentDelta = deltas.shares;
+          currentTotal = processedData.totalShares;
+        }
+
+        let triggered = false;
+        if (rule.condition === 'gt_count' && currentDelta >= rule.threshold) {
+          triggered = true;
+        } else if (rule.condition === 'gt_total' && currentTotal >= rule.threshold) {
+          triggered = true;
+        }
+
+        if (triggered) {
+          const alert = this.recordAlert({
+            targetId,
+            alertType: 'CUSTOM_RULE_TRIGGERED',
+            metricName: rule.metric,
+            oldVal: currentTotal - currentDelta,
+            newVal: currentTotal,
+            delta: currentDelta,
+            threshold: rule.threshold,
+            severity: rule.severity || 'WARNING',
+            message: `Quy tắc tùy chỉnh [${rule.name}]: ${rule.metric} vượt ngưỡng ${rule.threshold} (+${currentDelta}).`,
+            detectedAt,
+            ruleId: rule.id,
+            cooldownSec: rule.cooldown_sec || 300,
+            payload: {
+              ruleId: rule.id,
+              ruleName: rule.name,
+              metric: rule.metric,
+              threshold: rule.threshold,
+              timeWindow: rule.time_window,
+              channels: rule.channels
+            }
+          });
+          generatedAlerts.push(alert);
+        }
+      }
+    } catch (e) {
+      // Custom rules evaluation safe catch
     }
 
     return generatedAlerts;
@@ -118,16 +255,113 @@ class AlertEngine {
       threshold: 0,
       severity: 'CRITICAL',
       message: `Mất quyền truy xuất hoặc ngắt kết nối: ${errorMessage}`,
-      detectedAt: new Date().toISOString()
+      detectedAt: new Date().toISOString(),
+      payload: {
+        error: errorMessage,
+        timeWindow: '1M',
+        explanation: 'Phiên kết nối hoặc cookie tài khoản bị checkpoint hoặc thiếu quyền truy cập Meta.'
+      }
     });
   }
 
-  recordAlert({ targetId, alertType, metricName, oldVal, newVal, delta, threshold, severity, message, detectedAt }) {
+  /**
+   * Log state transition (e.g. paused, resumed)
+   */
+  recordMonitorStateChange(targetId, eventType, message, severity = 'INFO') {
+    return this.recordAlert({
+      targetId,
+      alertType: eventType,
+      metricName: 'status',
+      oldVal: 0,
+      newVal: 1,
+      delta: 0,
+      threshold: 0,
+      severity,
+      message,
+      detectedAt: new Date().toISOString(),
+      payload: { eventType, explanation: message }
+    });
+  }
+
+  /**
+   * Main Record & Deduplicate Engine
+   */
+  recordAlert({ targetId, alertType, metricName, oldVal, newVal, delta, threshold, severity, message, detectedAt, payload, ruleId, cooldownSec = 300 }) {
+    const dedupKey = `target_${targetId}_${alertType}_${metricName || 'metric'}`;
+    const nowMs = new Date(detectedAt).getTime();
+
+    // Deduplication check: Is there an existing OPEN alert with this dedup_key within cooldownSec?
+    try {
+      const existing = this.db.prepare(`
+        SELECT * FROM alerts 
+        WHERE dedup_key = ? AND status = 'OPEN' 
+        ORDER BY id DESC LIMIT 1
+      `).get(dedupKey);
+
+      if (existing) {
+        const lastDetectedMs = new Date(existing.detected_at).getTime();
+        const diffSec = (nowMs - lastDetectedMs) / 1000;
+        if (diffSec < cooldownSec) {
+          // Aggregate / update existing open alert instead of creating spam duplicate
+          let existingPayload = {};
+          try { existingPayload = JSON.parse(existing.payload || '{}'); } catch {}
+          const occurrences = (existingPayload.occurrences || 1) + 1;
+          const updatedPayload = JSON.stringify({
+            ...existingPayload,
+            ...(payload || {}),
+            occurrences,
+            last_delta: delta,
+            max_delta: Math.max(existing.delta, delta),
+            peak_val: Math.max(existing.new_val, newVal),
+            updated_at: detectedAt
+          });
+
+          // Escalate severity if incoming severity is higher
+          const severityRanks = { INFO: 1, WARNING: 2, HIGH: 3, CRITICAL: 4 };
+          const curRank = severityRanks[existing.severity] || 1;
+          const newRank = severityRanks[severity] || 1;
+          const finalSeverity = newRank > curRank ? severity : existing.severity;
+
+          this.db.prepare(`
+            UPDATE alerts 
+            SET new_val = ?, delta = ?, severity = ?, detected_at = ?, payload = ?, is_read = 0
+            WHERE id = ?
+          `).run(newVal, delta, finalSeverity, detectedAt, updatedPayload, existing.id);
+
+          const updatedAlert = {
+            id: existing.id,
+            targetId,
+            alertType,
+            metricName,
+            oldVal: existing.old_val,
+            newVal,
+            delta,
+            threshold,
+            severity: finalSeverity,
+            message,
+            detectedAt,
+            acknowledged: existing.acknowledged,
+            is_read: 0,
+            status: 'OPEN',
+            dedup_key: dedupKey,
+            payload: updatedPayload,
+            rule_id: existing.rule_id
+          };
+          this.emitAlert(updatedAlert);
+          return updatedAlert;
+        }
+      }
+    } catch (e) {
+      // Fallback to insertion if dedup check fails
+    }
+
+    // Otherwise insert new alert record
+    const payloadStr = typeof payload === 'string' ? payload : JSON.stringify(payload || { occurrences: 1 });
     const info = this.db.prepare(`
       INSERT INTO alerts (
-        target_id, alert_type, metric_name, old_val, new_val, delta, threshold, severity, message, detected_at, acknowledged
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-    `).run(targetId, alertType, metricName, oldVal, newVal, delta, threshold, severity, message, detectedAt);
+        target_id, alert_type, metric_name, old_val, new_val, delta, threshold, severity, message, detected_at, acknowledged, is_read, status, dedup_key, payload, rule_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'OPEN', ?, ?, ?)
+    `).run(targetId, alertType, metricName, oldVal, newVal, delta, threshold, severity, message, detectedAt, dedupKey, payloadStr, ruleId || null);
 
     const alertObject = {
       id: Number(info.lastInsertRowid),
@@ -141,7 +375,12 @@ class AlertEngine {
       severity,
       message,
       detectedAt,
-      acknowledged: 0
+      acknowledged: 0,
+      is_read: 0,
+      status: 'OPEN',
+      dedup_key: dedupKey,
+      payload: payloadStr,
+      rule_id: ruleId || null
     };
 
     this.emitAlert(alertObject);

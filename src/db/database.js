@@ -120,6 +120,30 @@ function initSchema(db) {
       message TEXT NOT NULL,
       detected_at TEXT NOT NULL,
       acknowledged INTEGER DEFAULT 0,
+      is_read INTEGER DEFAULT 0,
+      read_at TEXT,
+      status TEXT DEFAULT 'OPEN',
+      acknowledged_at TEXT,
+      resolved_at TEXT,
+      dedup_key TEXT,
+      payload TEXT,
+      rule_id INTEGER,
+      FOREIGN KEY (target_id) REFERENCES monitored_targets(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS alert_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      target_id INTEGER,
+      name TEXT NOT NULL,
+      metric TEXT NOT NULL,
+      condition TEXT NOT NULL DEFAULT 'gt_count',
+      threshold REAL NOT NULL,
+      time_window TEXT NOT NULL DEFAULT '5M',
+      severity TEXT NOT NULL DEFAULT 'WARNING',
+      cooldown_sec INTEGER DEFAULT 300,
+      is_active INTEGER DEFAULT 1,
+      channels TEXT DEFAULT '["in_app"]',
+      created_at TEXT NOT NULL,
       FOREIGN KEY (target_id) REFERENCES monitored_targets(id) ON DELETE CASCADE
     );
 
@@ -137,6 +161,20 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_alerts_target ON alerts(target_id, detected_at DESC);
     CREATE INDEX IF NOT EXISTS idx_targets_status ON monitored_targets(status, last_checked_at);
   `);
+
+  // Safe runtime migrations for existing alerts tables in SQLite
+  try { db.exec("ALTER TABLE alerts ADD COLUMN is_read INTEGER DEFAULT 0;"); } catch {}
+  try { db.exec("ALTER TABLE alerts ADD COLUMN read_at TEXT;"); } catch {}
+  try { db.exec("ALTER TABLE alerts ADD COLUMN status TEXT DEFAULT 'OPEN';"); } catch {}
+  try { db.exec("ALTER TABLE alerts ADD COLUMN acknowledged_at TEXT;"); } catch {}
+  try { db.exec("ALTER TABLE alerts ADD COLUMN resolved_at TEXT;"); } catch {}
+  try { db.exec("ALTER TABLE alerts ADD COLUMN dedup_key TEXT;"); } catch {}
+  try { db.exec("ALTER TABLE alerts ADD COLUMN payload TEXT;"); } catch {}
+  try { db.exec("ALTER TABLE alerts ADD COLUMN rule_id INTEGER;"); } catch {}
+
+  try { db.exec("CREATE INDEX IF NOT EXISTS idx_alerts_read_status ON alerts(is_read, status);"); } catch {}
+  try { db.exec("CREATE INDEX IF NOT EXISTS idx_alerts_dedup ON alerts(dedup_key, status);"); } catch {}
+  try { db.exec("CREATE INDEX IF NOT EXISTS idx_alert_rules_target ON alert_rules(target_id, is_active);"); } catch {}
 }
 
 module.exports = {

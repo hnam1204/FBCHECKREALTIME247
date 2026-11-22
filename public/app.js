@@ -284,6 +284,8 @@ function handleLiveEvent(evt) {
       `;
       stream.prepend(item);
     }
+    dispatchDesktopNotification(a);
+    if (typeof fetchAlerts === 'function') fetchAlerts(currentAlertsPage);
     fetchOverview();
   }
 }
@@ -1966,46 +1968,774 @@ async function revokeAccount(id) {
   });
 }
 
-// --- 6. Alerts Tab API ---
-async function fetchAlerts() {
-  try {
-    const res = await fetch('/api/alerts');
-    const data = await res.json();
-    const tbody = document.getElementById('alertsTableBody');
+// --- 6. Alerts & Notifications Engine (Redesigned - Prompt 03) ---
+let currentAlertsPage = 1;
+const alertsPageLimit = 15;
+let alertsTotalPages = 1;
+let cachedAlertsList = [];
+let alertSearchTimeout = null;
+let currentDetailAlert = null;
 
-    if (data.alerts.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" class="p-6 text-center text-gray-500">Không có cảnh báo bất thường nào được ghi nhận.</td></tr>';
-      return;
+// Modern SVG Icon generator for Alerts
+function getAlertIcon(type, severity) {
+  if (severity === 'CRITICAL' || type === 'AUTH_LOST') {
+    return `<svg class="w-4 h-4 text-rose-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>`;
+  }
+  if (type === 'REACTION_SPIKE' || type === 'COMMENT_SURGE' || type === 'SHARE_BURST' || type === 'VIRAL_SHIFT') {
+    return `<svg class="w-4 h-4 text-brand-cyan shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>`;
+  }
+  if (type === 'ENGAGEMENT_DROP') {
+    return `<svg class="w-4 h-4 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"></path></svg>`;
+  }
+  if (type === 'SUSPICIOUS_GROWTH' || type === 'UNUSUAL_HOURS') {
+    return `<svg class="w-4 h-4 text-purple-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>`;
+  }
+  return `<svg class="w-4 h-4 text-txt-sub shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>`;
+}
+
+function getAlertSeverityBadge(severity) {
+  switch (severity) {
+    case 'CRITICAL':
+      return `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/30">CRITICAL</span>`;
+    case 'HIGH':
+      return `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30">HIGH</span>`;
+    case 'WARNING':
+      return `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-yellow-500/10 text-yellow-400 border border-yellow-500/30">WARNING</span>`;
+    default:
+      return `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-500/10 text-sky-400 border border-sky-500/30">INFO</span>`;
+  }
+}
+
+function getAlertGroupBadge(type) {
+  if (['REACTION_SPIKE', 'COMMENT_SURGE', 'SHARE_BURST', 'VIRAL_SHIFT', 'ENGAGEMENT_DROP'].includes(type)) {
+    return `<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/20">Tương tác</span>`;
+  }
+  if (['SUSPICIOUS_GROWTH', 'UNUSUAL_HOURS'].includes(type)) {
+    return `<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-purple-500/10 text-purple-400 border border-purple-500/20">Nghi vấn</span>`;
+  }
+  if (['TARGET_PAUSED', 'TARGET_RESUMED', 'TARGET_CONFIG_CHANGED'].includes(type)) {
+    return `<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Giám sát</span>`;
+  }
+  if (['AUTH_LOST', 'ACCOUNT_RATE_LIMITED', 'PROXY_FAILED'].includes(type)) {
+    return `<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20">Quyền & Token</span>`;
+  }
+  return `<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-surface-elevated text-txt-sub border border-surface-border">Hệ thống</span>`;
+}
+
+function getAlertStatusBadge(status) {
+  if (status === 'RESOLVED') {
+    return `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">ĐÃ GIẢI QUYẾT</span>`;
+  }
+  if (status === 'ACKNOWLEDGED') {
+    return `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30">ĐÃ TIẾP NHẬN</span>`;
+  }
+  return `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/30">CẦN XỬ LÝ (OPEN)</span>`;
+}
+
+function formatRelativeTime(dateStr) {
+  if (!dateStr) return '';
+  const now = Date.now();
+  const t = new Date(dateStr).getTime();
+  const diffSec = Math.floor((now - t) / 1000);
+  if (diffSec < 45) return 'vừa xong';
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)} phút trước`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} giờ trước`;
+  return `${Math.floor(diffSec / 86400)} ngày trước`;
+}
+
+// --- Header Notification Bell & Dropdown ---
+function toggleNotificationDropdown() {
+  const dd = document.getElementById('notificationDropdown');
+  if (!dd) return;
+  const isHidden = dd.classList.contains('hidden');
+  if (isHidden) {
+    dd.classList.remove('hidden');
+    fetchAlerts(1, true);
+  } else {
+    dd.classList.add('hidden');
+  }
+}
+
+function openAlertsCenterFromDropdown() {
+  const dd = document.getElementById('notificationDropdown');
+  if (dd) dd.classList.add('hidden');
+  switchTab('alerts');
+}
+
+document.addEventListener('click', (e) => {
+  const bell = document.getElementById('btnNotificationBell');
+  const dropdown = document.getElementById('notificationDropdown');
+  if (bell && dropdown && !dropdown.classList.contains('hidden')) {
+    if (!bell.contains(e.target) && !dropdown.contains(e.target)) {
+      dropdown.classList.add('hidden');
+    }
+  }
+});
+
+function debounceFetchAlerts() {
+  clearTimeout(alertSearchTimeout);
+  alertSearchTimeout = setTimeout(() => {
+    fetchAlerts(1);
+  }, 350);
+}
+
+function changeAlertPage(delta) {
+  const target = currentAlertsPage + delta;
+  if (target >= 1 && target <= alertsTotalPages) {
+    fetchAlerts(target);
+  }
+}
+
+// --- Main Alert Center Fetcher ---
+async function fetchAlerts(page = currentAlertsPage, isDropdownOnly = false) {
+  const refreshIcon = document.getElementById('refreshAlertsIcon');
+  if (refreshIcon) refreshIcon.classList.add('animate-spin');
+
+  try {
+    const search = document.getElementById('alertSearchInput')?.value.trim() || '';
+    const read = document.getElementById('alertReadFilter')?.value || '';
+    const status = document.getElementById('alertStatusFilter')?.value || '';
+    const severity = document.getElementById('alertSeverityFilter')?.value || '';
+    const group = document.getElementById('alertGroupFilter')?.value || '';
+    const timeframe = document.getElementById('alertTimeframeFilter')?.value || '';
+
+    const params = new URLSearchParams();
+    params.set('page', String(page));
+    params.set('limit', String(alertsPageLimit));
+    if (search) params.set('search', search);
+    if (read) params.set('read', read);
+    if (status) params.set('status', status);
+    if (severity) params.set('severity', severity);
+    if (group) params.set('group', group);
+    if (timeframe && timeframe !== 'ALL') params.set('timeframe', timeframe);
+
+    const res = await fetch(`/api/alerts?${params.toString()}`);
+    const data = await res.json();
+
+    if (!data || !data.alerts) return;
+
+    currentAlertsPage = data.page || page;
+    alertsTotalPages = data.totalPages || 1;
+    cachedAlertsList = data.alerts;
+
+    // 1. Update Header Badges & Tab Counter
+    const unreadCount = data.unreadCount || (data.kpis?.unreadCount) || 0;
+    const bellBadge = document.getElementById('unreadAlertCount');
+    if (bellBadge) {
+      if (unreadCount > 0) {
+        bellBadge.textContent = unreadCount > 99 ? '99+' : unreadCount;
+        bellBadge.classList.remove('hidden');
+      } else {
+        bellBadge.classList.add('hidden');
+      }
+    }
+    const tabBadge = document.getElementById('tabAlertsCount');
+    if (tabBadge) {
+      tabBadge.textContent = unreadCount > 99 ? '99+' : unreadCount;
+    }
+    const dropBadge = document.getElementById('dropdownUnreadBadge');
+    if (dropBadge) {
+      dropBadge.textContent = `${unreadCount} chưa đọc`;
     }
 
-    tbody.innerHTML = data.alerts.map(a => `
-      <tr class="hover:bg-dark-hover">
-        <td class="p-3 font-mono text-gray-400">${new Date(a.detected_at).toLocaleString('vi-VN')}</td>
-        <td class="p-3">
-          <span class="px-2 py-0.5 rounded text-[10px] font-bold ${a.severity === 'CRITICAL' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'}">
-            ${a.severity}
-          </span>
-        </td>
-        <td class="p-3 font-semibold text-white">${a.alert_type}</td>
-        <td class="p-3 truncate max-w-[180px]">${a.author_name || a.normalized_url}</td>
-        <td class="p-3 text-gray-300">${a.message}</td>
-        <td class="p-3 text-right">
-          ${a.acknowledged ? '<span class="text-gray-500">Đã xác nhận</span>' : `<button onclick="ackAlert(${a.id})" class="px-2 py-1 bg-brand-500 hover:bg-brand-600 text-white rounded text-[11px]">Xác nhận</button>`}
-        </td>
-      </tr>
-    `).join('');
+    // 2. Render 5 latest in Dropdown List
+    const dropList = document.getElementById('dropdownNotificationList');
+    if (dropList) {
+      const top5 = data.alerts.slice(0, 5);
+      if (top5.length === 0) {
+        dropList.innerHTML = '<div class="p-6 text-center text-txt-sub italic">Không có thông báo mới nào.</div>';
+      } else {
+        dropList.innerHTML = top5.map(a => `
+          <div onclick="openAlertDetail(${a.id}); toggleNotificationDropdown();" class="p-3 hover:bg-surface-elevated/70 cursor-pointer transition flex items-start gap-2.5 ${!a.is_read ? 'bg-surface-elevated/30' : ''}">
+            <div class="mt-0.5">${getAlertIcon(a.alert_type, a.severity)}</div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between gap-1">
+                <span class="font-semibold text-txt-title truncate text-[11px]">${a.alert_type}</span>
+                <span class="text-[10px] text-txt-sub font-mono shrink-0">${formatRelativeTime(a.detected_at)}</span>
+              </div>
+              <p class="text-[11px] text-txt-body truncate mt-0.5">${a.message}</p>
+            </div>
+            ${!a.is_read ? '<span class="w-2 h-2 rounded-full bg-rose-500 mt-1 shrink-0 animate-pulse"></span>' : ''}
+          </div>
+        `).join('');
+      }
+    }
+
+    if (isDropdownOnly) return;
+
+    // 3. Update 4 KPI Cards
+    const kpiTotal = document.getElementById('alertKpiTotal');
+    const kpiUnread = document.getElementById('alertKpiUnread');
+    const kpiCritical = document.getElementById('alertKpiCritical');
+    const kpiOpen = document.getElementById('alertKpiOpen');
+
+    if (kpiTotal) kpiTotal.textContent = (data.kpis?.totalNotifications || 0).toLocaleString();
+    if (kpiUnread) kpiUnread.textContent = (data.kpis?.unreadCount || 0).toLocaleString();
+    if (kpiCritical) kpiCritical.textContent = (data.kpis?.criticalAlerts || 0).toLocaleString();
+    if (kpiOpen) kpiOpen.textContent = (data.kpis?.openAlerts || 0).toLocaleString();
+
+    // 4. Render Table Body
+    const tbody = document.getElementById('alertsTableBody');
+    if (tbody) {
+      if (data.alerts.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-txt-sub italic">Không tìm thấy thông báo hoặc cảnh báo nào phù hợp với bộ lọc hiện tại.</td></tr>`;
+      } else {
+        tbody.innerHTML = data.alerts.map(a => {
+          const isUnread = !a.is_read;
+          const detectedDate = new Date(a.detected_at).toLocaleString('vi-VN');
+          const relTime = formatRelativeTime(a.detected_at);
+          let parsedPayload = {};
+          try {
+            parsedPayload = typeof a.payload === 'string' ? JSON.parse(a.payload) : (a.payload || {});
+          } catch (_) {}
+
+          let deltaBadge = '';
+          if (parsedPayload.delta !== undefined && parsedPayload.delta !== null) {
+            const d = parsedPayload.delta;
+            deltaBadge = `<span class="ml-2 font-mono text-[10px] font-bold px-1.5 py-0.2 rounded ${d >= 0 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'}">${d >= 0 ? '+' : ''}${d}</span>`;
+          }
+
+          const authorName = a.author_name || (a.target_author ? a.target_author : 'Hệ thống Telemetry');
+          const avatarUrl = a.target_avatar || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=80&auto=format&fit=crop&q=60';
+          const targetUrl = a.normalized_url || '#';
+
+          return `
+            <tr class="hover:bg-surface-elevated/40 transition ${isUnread ? 'bg-surface-elevated/20' : ''}">
+              <td class="p-3.5 align-middle">
+                <div class="flex flex-col gap-1 items-start">
+                  ${getAlertSeverityBadge(a.severity)}
+                  ${getAlertGroupBadge(a.alert_type)}
+                </div>
+              </td>
+              <td class="p-3.5 align-middle max-w-xs">
+                <div class="flex items-start gap-2">
+                  <div class="mt-0.5">${getAlertIcon(a.alert_type, a.severity)}</div>
+                  <div class="min-w-0">
+                    <div class="flex items-center gap-1.5">
+                      <span class="font-bold text-txt-title">${a.alert_type}</span>
+                      ${deltaBadge}
+                      ${isUnread ? '<span class="w-2 h-2 rounded-full bg-rose-500 inline-block animate-pulse"></span>' : ''}
+                    </div>
+                    <p class="text-txt-body text-[11px] mt-0.5 line-clamp-2">${a.message}</p>
+                  </div>
+                </div>
+              </td>
+              <td class="p-3.5 align-middle max-w-[200px]">
+                <div class="flex items-center gap-2 min-w-0">
+                  <img src="${avatarUrl}" alt="author" referrerpolicy="no-referrer" class="w-7 h-7 rounded-lg object-cover bg-surface-border border border-surface-border shrink-0">
+                  <div class="min-w-0 flex-1">
+                    <div class="font-semibold text-txt-title truncate text-[11px]">${authorName}</div>
+                    <a href="${targetUrl}" target="_blank" rel="noopener noreferrer" class="text-[10px] text-brand-cyan hover:underline truncate block font-mono" title="${targetUrl}">
+                      ${targetUrl.replace(/^https?:\/\/(www\.)?facebook\.com\//, '')}
+                    </a>
+                  </div>
+                </div>
+              </td>
+              <td class="p-3.5 align-middle whitespace-nowrap">
+                <div class="font-mono text-[11px] text-txt-body">${detectedDate}</div>
+                <div class="text-[10px] text-txt-sub">${relTime}</div>
+              </td>
+              <td class="p-3.5 align-middle text-center whitespace-nowrap">
+                ${getAlertStatusBadge(a.status || (a.acknowledged ? 'ACKNOWLEDGED' : 'OPEN'))}
+              </td>
+              <td class="p-3.5 align-middle text-right whitespace-nowrap">
+                <div class="flex items-center justify-end gap-1.5">
+                  <button onclick="toggleAlertRead(${a.id}, ${a.is_read ? 1 : 0})" title="${a.is_read ? 'Đánh dấu chưa đọc' : 'Đánh dấu đã đọc'}" class="p-1.5 bg-surface hover:bg-surface-elevated text-txt-sub hover:text-txt-title rounded-lg border border-surface-border transition cursor-pointer">
+                    ${a.is_read ? `
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"></path></svg>
+                    ` : `
+                      <svg class="w-3.5 h-3.5 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                    `}
+                  </button>
+                  ${(a.status === 'OPEN' || !a.acknowledged) ? `
+                    <button onclick="ackAlert(${a.id})" title="Tiếp nhận cảnh báo" class="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-[10px] font-semibold transition cursor-pointer">
+                      Tiếp nhận
+                    </button>
+                  ` : (a.status === 'ACKNOWLEDGED') ? `
+                    <button onclick="resolveAlert(${a.id})" title="Đánh dấu đã giải quyết" class="px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-[10px] font-semibold transition cursor-pointer">
+                      Giải quyết
+                    </button>
+                  ` : `
+                    <span class="text-[10px] text-txt-sub italic">Đã xong</span>
+                  `}
+                  <button onclick="openAlertDetail(${a.id})" title="Chi tiết" class="p-1.5 bg-surface hover:bg-surface-elevated text-brand-cyan rounded-lg border border-surface-border transition cursor-pointer">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                  </button>
+                  <button onclick="deleteAlert(${a.id})" title="Xóa thông báo" class="p-1.5 bg-surface hover:bg-rose-500/20 text-txt-sub hover:text-rose-400 rounded-lg border border-surface-border transition cursor-pointer">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      }
+    }
+
+    // 5. Update Pagination Info & Buttons
+    const pagInfo = document.getElementById('alertPaginationInfo');
+    const pagCur = document.getElementById('alertPageCurrent');
+    const btnPrev = document.getElementById('btnAlertPrevPage');
+    const btnNext = document.getElementById('btnAlertNextPage');
+
+    const totalCount = data.totalCount || 0;
+    if (pagInfo) {
+      if (totalCount === 0) {
+        pagInfo.textContent = 'Hiển thị 0 thông báo';
+      } else {
+        const start = (currentAlertsPage - 1) * alertsPageLimit + 1;
+        const end = Math.min(currentAlertsPage * alertsPageLimit, totalCount);
+        pagInfo.textContent = `Hiển thị ${start} - ${end} trên tổng số ${totalCount} thông báo`;
+      }
+    }
+    if (pagCur) pagCur.textContent = String(currentAlertsPage);
+    if (btnPrev) btnPrev.disabled = (currentAlertsPage <= 1);
+    if (btnNext) btnNext.disabled = (currentAlertsPage >= alertsTotalPages);
+
   } catch (e) {
-    console.error('Lỗi tải alerts:', e);
+    console.error('Lỗi fetchAlerts:', e);
+  } finally {
+    if (refreshIcon) refreshIcon.classList.remove('animate-spin');
+  }
+}
+
+// --- Alert Lifecycle Handlers ---
+async function markAllNotificationsRead() {
+  try {
+    const res = await fetch('/api/alerts/read-all', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showNoticeModal({ title: 'Đã hoàn tất', message: 'Tất cả thông báo đã được đánh dấu là đã đọc thành công.', type: 'success' });
+      fetchAlerts(currentAlertsPage);
+      fetchOverview();
+    }
+  } catch (e) {
+    showNoticeModal({ title: 'Lỗi', message: e.message, type: 'error' });
+  }
+}
+
+async function toggleAlertRead(id, currentIsRead) {
+  try {
+    const endpoint = currentIsRead ? `/api/alerts/${id}/unread` : `/api/alerts/${id}/read`;
+    await fetch(endpoint, { method: 'PATCH' });
+    fetchAlerts(currentAlertsPage);
+  } catch (e) {
+    showNoticeModal({ title: 'Lỗi', message: e.message, type: 'error' });
   }
 }
 
 async function ackAlert(id) {
   try {
     await fetch(`/api/alerts/${id}/ack`, { method: 'PATCH' });
-    fetchAlerts();
+    fetchAlerts(currentAlertsPage);
     fetchOverview();
   } catch (e) {
-    alert('Lỗi: ' + e.message);
+    showNoticeModal({ title: 'Lỗi', message: e.message, type: 'error' });
+  }
+}
+
+async function resolveAlert(id) {
+  try {
+    await fetch(`/api/alerts/${id}/resolve`, { method: 'PATCH' });
+    fetchAlerts(currentAlertsPage);
+    fetchOverview();
+  } catch (e) {
+    showNoticeModal({ title: 'Lỗi', message: e.message, type: 'error' });
+  }
+}
+
+function deleteAlert(id) {
+  showConfirmDialog({
+    title: 'Xóa thông báo',
+    message: 'Bạn có chắc chắn muốn xóa bản ghi cảnh báo này khỏi lịch sử hệ thống?',
+    acceptText: 'Xóa ngay',
+    cancelText: 'Hủy bỏ',
+    onConfirm: async () => {
+      try {
+        await fetch(`/api/alerts/${id}`, { method: 'DELETE' });
+        fetchAlerts(currentAlertsPage);
+        fetchOverview();
+      } catch (e) {
+        showNoticeModal({ title: 'Lỗi xóa', message: e.message, type: 'error' });
+      }
+    }
+  });
+}
+
+// --- Section VII: Alert Detail Modal & Drawer ---
+async function openAlertDetail(id) {
+  try {
+    let alertData = cachedAlertsList.find(a => a.id === id);
+    if (!alertData) {
+      const res = await fetch(`/api/alerts/${id}`);
+      const data = await res.json();
+      alertData = data.alert;
+    }
+    if (!alertData) return;
+
+    currentDetailAlert = alertData;
+
+    // Auto mark as read when opened if unread
+    if (!alertData.is_read) {
+      fetch(`/api/alerts/${id}/read`, { method: 'PATCH' }).then(() => {
+        alertData.is_read = 1;
+        fetchAlerts(currentAlertsPage);
+      }).catch(() => {});
+    }
+
+    const modal = document.getElementById('alertDetailModal');
+    if (!modal) return;
+
+    // Icon & Header
+    const iconBox = document.getElementById('alertDetailIconBox');
+    if (iconBox) {
+      iconBox.className = `w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${alertData.severity === 'CRITICAL' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30' : 'bg-brand-blue/10 text-brand-cyan border border-brand-cyan/30'}`;
+      iconBox.innerHTML = getAlertIcon(alertData.alert_type, alertData.severity);
+    }
+
+    document.getElementById('alertDetailTitle').textContent = alertData.alert_type;
+
+    const sevBadge = document.getElementById('alertDetailSeverityBadge');
+    if (sevBadge) {
+      sevBadge.className = `text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${alertData.severity === 'CRITICAL' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'}`;
+      sevBadge.textContent = alertData.severity;
+    }
+
+    const stBadge = document.getElementById('alertDetailStatusBadge');
+    if (stBadge) {
+      const st = alertData.status || (alertData.acknowledged ? 'ACKNOWLEDGED' : 'OPEN');
+      stBadge.className = `text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${st === 'RESOLVED' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : st === 'ACKNOWLEDGED' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'}`;
+      stBadge.textContent = st;
+    }
+
+    document.getElementById('alertDetailTime').textContent = `${new Date(alertData.detected_at).toLocaleString('vi-VN')} (${formatRelativeTime(alertData.detected_at)})`;
+
+    // Related Facebook Target
+    const avatarImg = document.getElementById('alertDetailTargetAvatar');
+    if (avatarImg) {
+      avatarImg.src = alertData.target_avatar || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=80&auto=format&fit=crop&q=60';
+    }
+    const nameEl = document.getElementById('alertDetailTargetName');
+    if (nameEl) nameEl.textContent = alertData.author_name || alertData.target_author || 'Hệ thống NHN Telemetry';
+
+    const urlEl = document.getElementById('alertDetailTargetUrl');
+    if (urlEl) {
+      urlEl.href = alertData.normalized_url || '#';
+      urlEl.textContent = alertData.normalized_url || 'Không có liên kết';
+    }
+
+    // Parse Payload for Fluctuations
+    let payload = {};
+    try {
+      payload = typeof alertData.payload === 'string' ? JSON.parse(alertData.payload) : (alertData.payload || {});
+    } catch (_) {}
+
+    document.getElementById('alertDetailOldVal').textContent = (payload.oldVal ?? payload.previousValue ?? 0).toLocaleString();
+    document.getElementById('alertDetailNewVal').textContent = (payload.newVal ?? payload.currentValue ?? 0).toLocaleString();
+    
+    const deltaEl = document.getElementById('alertDetailDeltaVal');
+    const dVal = payload.delta ?? 0;
+    deltaEl.textContent = `${dVal >= 0 ? '+' : ''}${dVal.toLocaleString()}`;
+    deltaEl.className = `text-sm font-bold mt-0.5 ${dVal >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
+
+    document.getElementById('alertDetailThresholdVal').textContent = payload.threshold ? `+${payload.threshold}` : 'Mặc định';
+
+    // Detailed Context Explanation
+    let explanationText = alertData.message;
+    if (payload.growthRate) {
+      explanationText += ` Tỷ lệ gia tăng ước tính: ${payload.growthRate}%.`;
+    }
+    if (alertData.alert_type === 'REACTION_SPIKE' || alertData.alert_type === 'COMMENT_SURGE') {
+      explanationText += ' Tín hiệu lan truyền vượt ngưỡng cảnh báo tự nhiên trong chu kỳ kiểm tra. Cần theo dõi thêm để phát hiện hành vi tăng tương tác bất thường hoặc seeding diện rộng.';
+    } else if (alertData.alert_type === 'SUSPICIOUS_GROWTH') {
+      explanationText += ' Cảnh báo chỉ số tăng trưởng bất thường trong khung giờ thấp điểm hoặc phân bố cảm xúc lệch chuẩn (nhiều Angry/Haha đột biến). Cần kiểm tra nguồn tương tác.';
+    } else if (alertData.alert_type === 'AUTH_LOST') {
+      explanationText += ' Phiên làm việc (Cookie/Token) của tài khoản quét đã bị đăng xuất hoặc hết hạn. Vui lòng cấp lại tài khoản Meta để tiếp tục giám sát.';
+    }
+    document.getElementById('alertDetailExplanation').textContent = explanationText;
+
+    // 3 Lifecycles Status
+    const readLife = document.getElementById('alertDetailReadLife');
+    if (readLife) {
+      readLife.innerHTML = alertData.is_read ? `<span class="text-emerald-400">Đã đọc (${alertData.read_at ? new Date(alertData.read_at).toLocaleTimeString('vi-VN') : 'Vừa xong'})</span>` : `<span class="text-rose-400">Chưa đọc</span>`;
+    }
+
+    const resLife = document.getElementById('alertDetailResolutionLife');
+    if (resLife) {
+      const curStatus = alertData.status || (alertData.acknowledged ? 'ACKNOWLEDGED' : 'OPEN');
+      if (curStatus === 'RESOLVED') {
+        resLife.innerHTML = `<span class="text-emerald-400">Đã giải quyết (${alertData.resolved_at ? new Date(alertData.resolved_at).toLocaleTimeString('vi-VN') : 'Hoàn tất'})</span>`;
+      } else if (curStatus === 'ACKNOWLEDGED') {
+        resLife.innerHTML = `<span class="text-amber-400">Đã tiếp nhận (${alertData.acknowledged_at ? new Date(alertData.acknowledged_at).toLocaleTimeString('vi-VN') : 'Đang xử lý'})</span>`;
+      } else {
+        resLife.innerHTML = `<span class="text-rose-400">Chưa xử lý (Đang chờ tiếp nhận)</span>`;
+      }
+    }
+
+    // Modal action buttons state
+    const btnToggle = document.getElementById('btnToggleReadSingle');
+    if (btnToggle) {
+      btnToggle.textContent = alertData.is_read ? 'Đánh dấu chưa đọc' : 'Đánh dấu đã đọc';
+    }
+
+    const btnAck = document.getElementById('btnAckSingle');
+    if (btnAck) {
+      btnAck.style.display = (alertData.status === 'RESOLVED' || alertData.status === 'ACKNOWLEDGED') ? 'none' : 'inline-block';
+    }
+
+    const btnRes = document.getElementById('btnResolveSingle');
+    if (btnRes) {
+      btnRes.style.display = (alertData.status === 'RESOLVED') ? 'none' : 'inline-block';
+    }
+
+    modal.classList.remove('hidden');
+  } catch (e) {
+    console.error('Lỗi openAlertDetail:', e);
+  }
+}
+
+function closeAlertDetailModal() {
+  const modal = document.getElementById('alertDetailModal');
+  if (modal) modal.classList.add('hidden');
+  currentDetailAlert = null;
+}
+
+function jumpToTargetFromAlert() {
+  if (currentDetailAlert && currentDetailAlert.target_id) {
+    const tId = currentDetailAlert.target_id;
+    closeAlertDetailModal();
+    switchTab('targets');
+    loadTargetDetail(tId);
+  }
+}
+
+async function toggleAlertReadSingle() {
+  if (!currentDetailAlert) return;
+  await toggleAlertRead(currentDetailAlert.id, currentDetailAlert.is_read);
+  closeAlertDetailModal();
+}
+
+async function ackAlertSingle() {
+  if (!currentDetailAlert) return;
+  await ackAlert(currentDetailAlert.id);
+  closeAlertDetailModal();
+}
+
+async function resolveAlertSingle() {
+  if (!currentDetailAlert) return;
+  await resolveAlert(currentDetailAlert.id);
+  closeAlertDetailModal();
+}
+
+// --- Section VI: Alert Rules Modal Engine ---
+async function openAlertRulesModal() {
+  const modal = document.getElementById('alertRulesModal');
+  if (!modal) return;
+
+  // 1. Populate Target dropdown
+  try {
+    const res = await fetch('/api/targets?limit=100');
+    const data = await res.json();
+    const select = document.getElementById('ruleTargetSelect');
+    if (select) {
+      select.innerHTML = '<option value="">Toàn bộ bài viết (Global Rule)</option>' +
+        (data.targets || []).map(t => `<option value="${t.id}">${t.author_name || t.normalized_url}</option>`).join('');
+    }
+  } catch (_) {}
+
+  // 2. Fetch and render existing rules
+  await fetchAlertRules();
+
+  modal.classList.remove('hidden');
+}
+
+function closeAlertRulesModal() {
+  const modal = document.getElementById('alertRulesModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+async function fetchAlertRules() {
+  const container = document.getElementById('alertRulesListContainer');
+  const countBadge = document.getElementById('rulesCountBadge');
+  if (!container) return;
+
+  try {
+    const res = await fetch('/api/alert-rules');
+    const data = await res.json();
+    const rules = data.rules || [];
+
+    if (countBadge) countBadge.textContent = `${rules.length} quy tắc`;
+
+    if (rules.length === 0) {
+      container.innerHTML = `<div class="p-6 text-center text-txt-sub italic">Chưa có quy tắc cảnh báo nào được cấu hình. Thêm mới ở biểu mẫu phía trên.</div>`;
+      return;
+    }
+
+    container.innerHTML = rules.map(r => `
+      <div class="p-3 bg-surface hover:bg-surface-elevated/40 transition flex items-center justify-between gap-3 text-xs">
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-txt-title">${r.name}</span>
+            <span class="px-2 py-0.2 rounded text-[10px] font-bold ${r.severity === 'CRITICAL' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'}">${r.severity}</span>
+            <span class="text-[10px] text-txt-sub bg-surface-elevated px-2 py-0.2 rounded border border-surface-border">${r.target_author ? r.target_author : 'Toàn cầu (Global)'}</span>
+          </div>
+          <div class="text-[11px] text-txt-body mt-1 flex flex-wrap items-center gap-2">
+            <span>Theo dõi: <strong class="text-brand-cyan">${r.metric}</strong></span>
+            <span>Điều kiện: <strong>${r.condition === 'gt_count' ? 'Tăng +' : 'Vượt tổng'} ${r.threshold}</strong></span>
+            <span>Khung giờ: <strong>${r.time_window}</strong></span>
+            <span>Cooldown: <strong>${r.cooldown_seconds}s</strong></span>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <label class="relative inline-flex items-center cursor-pointer" title="Bật / Tắt quy tắc">
+            <input type="checkbox" onchange="toggleAlertRule(${r.id}, ${r.is_active ? 1 : 0})" ${r.is_active ? 'checked' : ''} class="sr-only peer">
+            <div class="w-8 h-4.5 bg-surface-border peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-brand-cyan"></div>
+          </label>
+          <button onclick="deleteAlertRule(${r.id})" title="Xóa quy tắc" class="p-1.5 bg-surface hover:bg-rose-500/20 text-txt-sub hover:text-rose-400 rounded-lg border border-surface-border transition cursor-pointer">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+          </button>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    console.error('Lỗi fetchAlertRules:', e);
+  }
+}
+
+async function submitCreateAlertRule() {
+  const nameInput = document.getElementById('ruleNameInput');
+  const targetSelect = document.getElementById('ruleTargetSelect');
+  const metricSelect = document.getElementById('ruleMetricSelect');
+  const condSelect = document.getElementById('ruleConditionSelect');
+  const threshInput = document.getElementById('ruleThresholdInput');
+  const winSelect = document.getElementById('ruleTimeWindowSelect');
+  const sevSelect = document.getElementById('ruleSeveritySelect');
+  const cdInput = document.getElementById('ruleCooldownInput');
+  const chkBrowser = document.getElementById('chkChannelBrowser');
+
+  const name = nameInput?.value.trim();
+  const threshold = parseInt(threshInput?.value, 10);
+
+  if (!name) {
+    showNoticeModal({ title: 'Thiếu thông tin', message: 'Vui lòng nhập tên quy tắc cảnh báo.', type: 'warning' });
+    return;
+  }
+  if (isNaN(threshold) || threshold <= 0) {
+    showNoticeModal({ title: 'Sai ngưỡng', message: 'Ngưỡng kích hoạt phải là số nguyên dương lớn hơn 0.', type: 'warning' });
+    return;
+  }
+
+  const payload = {
+    name,
+    target_id: targetSelect?.value ? parseInt(targetSelect.value, 10) : null,
+    metric: metricSelect?.value || 'reactions',
+    condition: condSelect?.value || 'gt_count',
+    threshold,
+    time_window: winSelect?.value || '5M',
+    severity: sevSelect?.value || 'WARNING',
+    cooldown_seconds: parseInt(cdInput?.value, 10) || 300,
+    channels: {
+      in_app: true,
+      browser: chkBrowser ? chkBrowser.checked : true
+    }
+  };
+
+  try {
+    const res = await fetch('/api/alert-rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.success) {
+      showNoticeModal({ title: 'Thành công', message: 'Đã tạo và kích hoạt quy tắc cảnh báo mới.', type: 'success' });
+      nameInput.value = '';
+      fetchAlertRules();
+    } else {
+      showNoticeModal({ title: 'Lỗi', message: data.error || 'Không thể tạo quy tắc', type: 'error' });
+    }
+  } catch (e) {
+    showNoticeModal({ title: 'Lỗi tạo rule', message: e.message, type: 'error' });
+  }
+}
+
+async function toggleAlertRule(id, currentActive) {
+  try {
+    await fetch(`/api/alert-rules/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_active: currentActive ? 0 : 1 })
+    });
+    fetchAlertRules();
+  } catch (e) {
+    showNoticeModal({ title: 'Lỗi cập nhật', message: e.message, type: 'error' });
+  }
+}
+
+function deleteAlertRule(id) {
+  showConfirmDialog({
+    title: 'Xóa quy tắc cảnh báo',
+    message: 'Bạn có chắc chắn muốn xóa quy tắc này? Các biến động sau này sẽ không còn kích hoạt theo quy tắc này nữa.',
+    acceptText: 'Xóa ngay',
+    cancelText: 'Hủy bỏ',
+    onConfirm: async () => {
+      try {
+        await fetch(`/api/alert-rules/${id}`, { method: 'DELETE' });
+        fetchAlertRules();
+      } catch (e) {
+        showNoticeModal({ title: 'Lỗi xóa rule', message: e.message, type: 'error' });
+      }
+    }
+  });
+}
+
+// --- Desktop Browser Native Notifications ---
+async function requestBrowserNotificationPermission() {
+  if (!('Notification' in window)) {
+    showNoticeModal({ title: 'Không hỗ trợ', message: 'Trình duyệt hiện tại không hỗ trợ Web Notification API.', type: 'info' });
+    return;
+  }
+
+  if (Notification.permission === 'granted') {
+    new Notification('NHN Telemetry - Giám sát Facebook', {
+      body: 'Thông báo Desktop đang hoạt động bình thường.',
+      icon: '/favicon.ico'
+    });
+    showNoticeModal({ title: 'Đã sẵn sàng', message: 'Quyền thông báo Desktop đã được cấp trước đó.', type: 'success' });
+    return;
+  }
+
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm === 'granted') {
+      new Notification('NHN Telemetry - Giám sát Facebook', {
+        body: 'Kích hoạt thông báo thành công! Cảnh báo nghiêm trọng sẽ xuất hiện ngay cả khi thu nhỏ trình duyệt.',
+        icon: '/favicon.ico'
+      });
+      showNoticeModal({ title: 'Đã kích hoạt', message: 'Bạn sẽ nhận được thông báo Desktop ngay lập tức khi phát hiện biến động.', type: 'success' });
+    } else {
+      showNoticeModal({ title: 'Chưa cấp quyền', message: 'Bạn đã từ chối nhận thông báo Desktop từ trình duyệt.', type: 'warning' });
+    }
+  } catch (e) {
+    console.error('Lỗi Notification permission:', e);
+  }
+}
+
+function dispatchDesktopNotification(alert) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  try {
+    const title = `[${alert.severity || 'ALERT'}] ${alert.alertType || alert.alert_type || 'Cảnh báo tương tác'}`;
+    const n = new Notification(title, {
+      body: alert.message || 'Phát hiện biến động tương tác mới',
+      icon: '/favicon.ico',
+      tag: `alert_${alert.id || Date.now()}`
+    });
+    n.onclick = () => {
+      window.focus();
+      if (alert.id) openAlertDetail(alert.id);
+    };
+  } catch (e) {
+    console.warn('Lỗi dispatch desktop notification:', e);
   }
 }
 

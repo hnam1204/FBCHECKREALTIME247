@@ -551,29 +551,252 @@ function createServer() {
     res.json({ success: true });
   });
 
-  // 10. Alerts & Threshold Config (Section 8)
+  // 10. Notifications & Alert Center Endpoints (Prompt 03)
   app.get('/api/alerts', (req, res) => {
-    const { acknowledged } = req.query;
-    let sql = `
-      SELECT a.*, t.author_name, t.normalized_url
+    const { status, read, severity, group, target_id, search, timeframe = 'ALL', page = 1, limit = 20 } = req.query;
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10)));
+    const offset = (pageNum - 1) * limitNum;
+
+    let whereClause = ' WHERE 1=1';
+    const params = [];
+
+    // Filter by read status
+    if (read === 'unread') {
+      whereClause += ' AND a.is_read = 0';
+    } else if (read === 'read') {
+      whereClause += ' AND a.is_read = 1';
+    }
+
+    // Filter by resolution status (OPEN / ACKNOWLEDGED / RESOLVED)
+    if (status && status !== 'ALL') {
+      whereClause += ' AND a.status = ?';
+      params.push(status);
+    }
+
+    // Filter by severity (INFO / WARNING / HIGH / CRITICAL)
+    if (severity && severity !== 'ALL') {
+      whereClause += ' AND a.severity = ?';
+      params.push(severity);
+    }
+
+    // Filter by target_id
+    if (target_id) {
+      whereClause += ' AND a.target_id = ?';
+      params.push(parseInt(target_id, 10));
+    }
+
+    // Filter by event group
+    if (group && group !== 'ALL') {
+      if (group === 'interaction') {
+        whereClause += " AND a.alert_type IN ('REACTION_SPIKE', 'COMMENT_SURGE', 'COMMENT_SPIKE', 'SHARE_BURST', 'SHARE_SPIKE', 'VIRAL_SHIFT', 'ENGAGEMENT_DROP', 'ENGAGEMENT_MILESTONE')";
+      } else if (group === 'suspicious') {
+        whereClause += " AND a.alert_type IN ('SUSPICIOUS_GROWTH', 'UNUSUAL_ENGAGEMENT_RATE', 'REPEATED_COMMENT_PATTERN', 'ANOMALY_DETECTED')";
+      } else if (group === 'monitor') {
+        whereClause += " AND a.alert_type IN ('MONITOR_STARTED', 'MONITOR_PAUSED', 'MONITOR_RESUMED', 'MONITOR_STOPPED', 'MONITOR_ERROR', 'SYNC_FAILED', 'SYNC_RECOVERED')";
+      } else if (group === 'connection') {
+        whereClause += " AND a.alert_type IN ('AUTH_LOST', 'TOKEN_EXPIRED', 'PERMISSION_REQUIRED', 'API_RATE_LIMITED', 'SOURCE_UNAVAILABLE', 'CONNECTION_FAILED', 'CONNECTION_RESTORED')";
+      } else if (group === 'system') {
+        whereClause += " AND a.alert_type IN ('SYSTEM_WARNING', 'SCHEDULER_DELAYED', 'QUEUE_BACKLOG', 'DATA_COLLECTION_DELAYED', 'DELIVERY_FAILED')";
+      }
+    }
+
+    // Filter by search term
+    if (search && search.trim()) {
+      whereClause += ' AND (a.message LIKE ? OR a.alert_type LIKE ? OR t.author_name LIKE ? OR t.normalized_url LIKE ?)';
+      const term = `%${search.trim()}%`;
+      params.push(term, term, term, term);
+    }
+
+    // Filter by timeframe
+    if (timeframe && timeframe !== 'ALL') {
+      const msMap = {
+        '1H': 60 * 60 * 1000,
+        '24H': 24 * 60 * 60 * 1000,
+        '7D': 7 * 24 * 60 * 60 * 1000,
+        '30D': 30 * 24 * 60 * 60 * 1000
+      };
+      if (msMap[timeframe]) {
+        const cutoff = new Date(Date.now() - msMap[timeframe]).toISOString();
+        whereClause += ' AND a.detected_at >= ?';
+        params.push(cutoff);
+      }
+    }
+
+    const countSql = `SELECT COUNT(*) as count FROM alerts a JOIN monitored_targets t ON t.id = a.target_id ${whereClause}`;
+    const totalCount = db.prepare(countSql).get(...params)?.count || 0;
+
+    const sql = `
+      SELECT a.*, t.author_name, t.author_avatar, t.post_image, t.normalized_url, t.target_type
       FROM alerts a
       JOIN monitored_targets t ON t.id = a.target_id
+      ${whereClause}
+      ORDER BY a.detected_at DESC
+      LIMIT ? OFFSET ?
     `;
-    const params = [];
-    if (acknowledged !== undefined) {
-      sql += ' WHERE a.acknowledged = ?';
-      params.push(parseInt(acknowledged, 10));
-    }
-    sql += ' ORDER BY a.detected_at DESC LIMIT 100';
+    const alerts = db.prepare(sql).all(...params, limitNum, offset);
 
-    const alerts = db.prepare(sql).all(...params);
-    res.json({ alerts });
+    // 4 Notification KPIs
+    const totalNotifications = db.prepare('SELECT COUNT(*) as count FROM alerts').get()?.count || 0;
+    const unreadCount = db.prepare('SELECT COUNT(*) as count FROM alerts WHERE is_read = 0').get()?.count || 0;
+    const criticalAlerts = db.prepare("SELECT COUNT(*) as count FROM alerts WHERE severity = 'CRITICAL' AND status != 'RESOLVED'").get()?.count || 0;
+    const openAlerts = db.prepare("SELECT COUNT(*) as count FROM alerts WHERE status = 'OPEN'").get()?.count || 0;
+
+    res.json({
+      alerts,
+      totalCount,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.max(1, Math.ceil(totalCount / limitNum)),
+      kpi: {
+        totalNotifications,
+        unreadCount,
+        criticalAlerts,
+        openAlerts
+      }
+    });
   });
 
+  // Single alert detail
+  app.get('/api/alerts/:id', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const alert = db.prepare(`
+      SELECT a.*, t.author_name, t.author_avatar, t.post_image, t.normalized_url, t.target_type, t.status as target_status, t.check_interval_sec
+      FROM alerts a
+      JOIN monitored_targets t ON t.id = a.target_id
+      WHERE a.id = ?
+    `).get(id);
+    if (!alert) return res.status(404).json({ error: 'Không tìm thấy thông báo' });
+    res.json({ alert });
+  });
+
+  // Mark single alert as read
+  app.patch('/api/alerts/:id/read', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const now = new Date().toISOString();
+    db.prepare('UPDATE alerts SET is_read = 1, read_at = ? WHERE id = ?').run(now, id);
+    res.json({ success: true, id, is_read: 1, read_at: now });
+  });
+
+  // Mark single alert as unread
+  app.patch('/api/alerts/:id/unread', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    db.prepare('UPDATE alerts SET is_read = 0, read_at = NULL WHERE id = ?').run(id);
+    res.json({ success: true, id, is_read: 0 });
+  });
+
+  // Mark all unread alerts as read
+  app.post('/api/alerts/read-all', (req, res) => {
+    const now = new Date().toISOString();
+    const result = db.prepare('UPDATE alerts SET is_read = 1, read_at = ? WHERE is_read = 0').run(now);
+    res.json({ success: true, updated: result.changes });
+  });
+
+  // Acknowledge alert (OPEN -> ACKNOWLEDGED)
   app.patch('/api/alerts/:id/ack', (req, res) => {
     const id = parseInt(req.params.id, 10);
-    db.prepare('UPDATE alerts SET acknowledged = 1 WHERE id = ?').run(id);
-    res.json({ success: true });
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE alerts 
+      SET acknowledged = 1, status = 'ACKNOWLEDGED', acknowledged_at = COALESCE(acknowledged_at, ?) 
+      WHERE id = ?
+    `).run(now, id);
+    res.json({ success: true, id, status: 'ACKNOWLEDGED', acknowledged: 1 });
+  });
+
+  // Resolve alert (-> RESOLVED)
+  app.patch('/api/alerts/:id/resolve', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE alerts 
+      SET status = 'RESOLVED', resolved_at = ? 
+      WHERE id = ?
+    `).run(now, id);
+    res.json({ success: true, id, status: 'RESOLVED', resolved_at: now });
+  });
+
+  // Delete single alert
+  app.delete('/api/alerts/:id', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    db.prepare('DELETE FROM alerts WHERE id = ?').run(id);
+    res.json({ success: true, id });
+  });
+
+  // Alert Rules CRUD
+  app.get('/api/alert-rules', (req, res) => {
+    const rules = db.prepare(`
+      SELECT r.*, t.author_name as target_name, t.normalized_url as target_url
+      FROM alert_rules r
+      LEFT JOIN monitored_targets t ON t.id = r.target_id
+      ORDER BY r.id DESC
+    `).all();
+    res.json({ rules });
+  });
+
+  app.post('/api/alert-rules', (req, res) => {
+    const { targetId, name, metric, condition, threshold, timeWindow, severity, cooldownSec, channels } = req.body;
+    if (!name || !metric || threshold === undefined) {
+      return res.status(400).json({ error: 'Thiếu thông tin cấu hình quy tắc bắt buộc' });
+    }
+    const now = new Date().toISOString();
+    const channelsStr = typeof channels === 'string' ? channels : JSON.stringify(channels || ['in_app']);
+    const info = db.prepare(`
+      INSERT INTO alert_rules (
+        target_id, name, metric, condition, threshold, time_window, severity, cooldown_sec, is_active, channels, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+    `).run(
+      targetId || null,
+      name,
+      metric,
+      condition || 'gt_count',
+      parseFloat(threshold),
+      timeWindow || '5M',
+      severity || 'WARNING',
+      parseInt(cooldownSec || 300, 10),
+      channelsStr,
+      now
+    );
+    res.json({ success: true, id: Number(info.lastInsertRowid) });
+  });
+
+  app.patch('/api/alert-rules/:id', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const { name, metric, condition, threshold, timeWindow, severity, cooldownSec, isActive, channels } = req.body;
+    const rule = db.prepare('SELECT * FROM alert_rules WHERE id = ?').get(id);
+    if (!rule) return res.status(404).json({ error: 'Không tìm thấy quy tắc' });
+
+    db.prepare(`
+      UPDATE alert_rules
+      SET name = COALESCE(?, name),
+          metric = COALESCE(?, metric),
+          condition = COALESCE(?, condition),
+          threshold = COALESCE(?, threshold),
+          time_window = COALESCE(?, time_window),
+          severity = COALESCE(?, severity),
+          cooldown_sec = COALESCE(?, cooldown_sec),
+          is_active = COALESCE(?, is_active),
+          channels = COALESCE(?, channels)
+      WHERE id = ?
+    `).run(
+      name || null,
+      metric || null,
+      condition || null,
+      threshold !== undefined ? parseFloat(threshold) : null,
+      timeWindow || null,
+      severity || null,
+      cooldownSec !== undefined ? parseInt(cooldownSec, 10) : null,
+      isActive !== undefined ? (isActive ? 1 : 0) : null,
+      channels !== undefined ? (typeof channels === 'string' ? channels : JSON.stringify(channels)) : null,
+      id
+    );
+    res.json({ success: true, id });
+  });
+
+  app.delete('/api/alert-rules/:id', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    db.prepare('DELETE FROM alert_rules WHERE id = ?').run(id);
+    res.json({ success: true, id });
   });
 
   app.put('/api/targets/:id/alert-config', (req, res) => {
