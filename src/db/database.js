@@ -175,6 +175,33 @@ function initSchema(db) {
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_alerts_read_status ON alerts(is_read, status);"); } catch {}
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_alerts_dedup ON alerts(dedup_key, status);"); } catch {}
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_alert_rules_target ON alert_rules(target_id, is_active);"); } catch {}
+
+  // Safe migrations for Prompt 05: Alert History & Audit Trail
+  try { db.exec("ALTER TABLE alerts ADD COLUMN evidence_status TEXT DEFAULT 'VERIFIED';"); } catch {}
+  try { db.exec("ALTER TABLE alerts ADD COLUMN source_type TEXT DEFAULT 'mbasic/comet';"); } catch {}
+  try { db.exec("ALTER TABLE alerts ADD COLUMN rule_version TEXT DEFAULT 'v1.0';"); } catch {}
+  try { db.exec("ALTER TABLE alerts ADD COLUMN detection_version TEXT DEFAULT 'v2.1';"); } catch {}
+  try { db.exec("ALTER TABLE alerts ADD COLUMN resolution_notes TEXT;"); } catch {}
+  try { db.exec("ALTER TABLE alerts ADD COLUMN resolved_by TEXT;"); } catch {}
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS alert_audit_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        alert_id INTEGER NOT NULL,
+        action_type TEXT NOT NULL,
+        actor TEXT NOT NULL DEFAULT 'Admin / Operator',
+        previous_status TEXT,
+        new_status TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (alert_id) REFERENCES alerts(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_audit_alert_id ON alert_audit_logs(alert_id, created_at ASC);
+      CREATE INDEX IF NOT EXISTS idx_alerts_status_detected ON alerts(status, detected_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_alerts_severity_detected ON alerts(severity, detected_at DESC);
+    `);
+  } catch {}
 }
 
 module.exports = {

@@ -1028,11 +1028,12 @@ async function handleApiRoute(pathname, method, request, env, url) {
     return jsonResponse({ success: true, updated: results.length });
   }
 
-  // GET /api/alerts (Trung tâm thông báo & Nhật ký cảnh báo - Prompt 03)
+  // GET /api/alerts (Nhật ký cảnh báo & Audit Trail - Prompt 05)
   if (pathname === '/api/alerts' && method === 'GET') {
     const status = url.searchParams.get('status');
     const read = url.searchParams.get('read');
     const severity = url.searchParams.get('severity');
+    const alert_type = url.searchParams.get('alert_type');
     const group = url.searchParams.get('group');
     const target_id = url.searchParams.get('target_id');
     const search = url.searchParams.get('search');
@@ -1060,18 +1061,23 @@ async function handleApiRoute(pathname, method, request, env, url) {
       params.push(severity);
     }
 
-    if (target_id) {
+    if (alert_type && alert_type !== 'ALL') {
+      whereClause += ' AND a.alert_type = ?';
+      params.push(alert_type);
+    }
+
+    if (target_id && target_id !== 'ALL') {
       whereClause += ' AND a.target_id = ?';
       params.push(parseInt(target_id, 10));
     }
 
     if (group && group !== 'ALL') {
       if (group === 'interaction') {
-        whereClause += " AND a.alert_type IN ('REACTION_SPIKE', 'COMMENT_SURGE', 'COMMENT_SPIKE', 'SHARE_BURST', 'SHARE_SPIKE', 'VIRAL_SHIFT', 'ENGAGEMENT_DROP', 'ENGAGEMENT_MILESTONE')";
+        whereClause += " AND a.alert_type IN ('REACTION_SPIKE', 'LIKE_SPIKE', 'LOVE_SPIKE', 'CARE_SPIKE', 'HAHA_SPIKE', 'WOW_SPIKE', 'SAD_SPIKE', 'ANGRY_SPIKE', 'COMMENT_SURGE', 'COMMENT_SPIKE', 'SHARE_BURST', 'SHARE_SPIKE', 'VIRAL_SHIFT', 'ENGAGEMENT_DROP', 'ENGAGEMENT_MILESTONE')";
       } else if (group === 'suspicious') {
-        whereClause += " AND a.alert_type IN ('SUSPICIOUS_GROWTH', 'UNUSUAL_ENGAGEMENT_RATE', 'REPEATED_COMMENT_PATTERN', 'ANOMALY_DETECTED')";
+        whereClause += " AND a.alert_type IN ('SUSPICIOUS_GROWTH', 'UNUSUAL_ENGAGEMENT_RATE', 'REPEATED_COMMENT_PATTERN', 'ANOMALY_DETECTED', 'GROWTH_ANOMALY', 'SUSPICIOUS_PATTERN')";
       } else if (group === 'monitor') {
-        whereClause += " AND a.alert_type IN ('MONITOR_STARTED', 'MONITOR_PAUSED', 'MONITOR_RESUMED', 'MONITOR_STOPPED', 'MONITOR_ERROR', 'SYNC_FAILED', 'SYNC_RECOVERED')";
+        whereClause += " AND a.alert_type IN ('MONITOR_STARTED', 'MONITOR_PAUSED', 'MONITOR_RESUMED', 'MONITOR_STOPPED', 'MONITOR_ERROR', 'SYNC_FAILED', 'SYNC_RECOVERED', 'SYNC_TIMEOUT')";
       } else if (group === 'connection') {
         whereClause += " AND a.alert_type IN ('AUTH_LOST', 'TOKEN_EXPIRED', 'PERMISSION_REQUIRED', 'API_RATE_LIMITED', 'SOURCE_UNAVAILABLE', 'CONNECTION_FAILED', 'CONNECTION_RESTORED')";
       } else if (group === 'system') {
@@ -1080,23 +1086,35 @@ async function handleApiRoute(pathname, method, request, env, url) {
     }
 
     if (search && search.trim()) {
-      whereClause += ' AND (a.message LIKE ? OR a.alert_type LIKE ? OR t.author_name LIKE ? OR t.normalized_url LIKE ?)';
-      const term = `%${search.trim()}%`;
-      params.push(term, term, term, term);
+      const trimmed = search.trim();
+      const numMatch = trimmed.match(/^#?ALT-(\d+)$/i) || trimmed.match(/^(\d+)$/);
+      if (numMatch) {
+        whereClause += ' AND (a.id = ? OR a.message LIKE ? OR a.alert_type LIKE ? OR t.author_name LIKE ? OR t.normalized_url LIKE ?)';
+        const idVal = parseInt(numMatch[1], 10);
+        const term = `%${trimmed}%`;
+        params.push(idVal, term, term, term, term);
+      } else {
+        whereClause += ' AND (a.message LIKE ? OR a.alert_type LIKE ? OR t.author_name LIKE ? OR t.normalized_url LIKE ?)';
+        const term = `%${trimmed}%`;
+        params.push(term, term, term, term);
+      }
     }
 
-    if (timeframe && timeframe !== 'ALL') {
-      const msMap = {
-        '1H': 60 * 60 * 1000,
-        '24H': 24 * 60 * 60 * 1000,
-        '7D': 7 * 24 * 60 * 60 * 1000,
-        '30D': 30 * 24 * 60 * 60 * 1000
-      };
-      if (msMap[timeframe]) {
-        const cutoff = new Date(Date.now() - msMap[timeframe]).toISOString();
-        whereClause += ' AND a.detected_at >= ?';
-        params.push(cutoff);
-      }
+    const msMap = {
+      '15M': 15 * 60 * 1000,
+      '30M': 30 * 60 * 1000,
+      '1H': 60 * 60 * 1000,
+      '3H': 3 * 3600 * 1000,
+      '6H': 6 * 3600 * 1000,
+      '12H': 12 * 3600 * 1000,
+      '24H': 24 * 3600 * 1000,
+      '7D': 7 * 24 * 60 * 60 * 1000,
+      '30D': 30 * 24 * 60 * 60 * 1000
+    };
+    if (timeframe && timeframe !== 'ALL' && msMap[timeframe]) {
+      const cutoff = new Date(Date.now() - msMap[timeframe]).toISOString();
+      whereClause += ' AND a.detected_at >= ?';
+      params.push(cutoff);
     }
 
     const countSql = `SELECT COUNT(*) as count FROM alerts a JOIN monitored_targets t ON t.id = a.target_id ${whereClause}`;
@@ -1112,11 +1130,61 @@ async function handleApiRoute(pathname, method, request, env, url) {
     `;
     const alerts = (await db.prepare(sql).bind(...params, limit, offset).all())?.results || [];
 
-    // 4 Notification KPIs
-    const totalNotifications = (await db.prepare('SELECT COUNT(*) as count FROM alerts').first())?.count || 0;
-    const unreadCount = (await db.prepare('SELECT COUNT(*) as count FROM alerts WHERE is_read = 0').first())?.count || 0;
-    const criticalAlerts = (await db.prepare("SELECT COUNT(*) as count FROM alerts WHERE severity = 'CRITICAL' AND status != 'RESOLVED'").first())?.count || 0;
+    // 5 Professional Alert KPIs (Section III.2)
+    const totalAlerts = (await db.prepare('SELECT COUNT(*) as count FROM alerts').first())?.count || 0;
     const openAlerts = (await db.prepare("SELECT COUNT(*) as count FROM alerts WHERE status = 'OPEN'").first())?.count || 0;
+    const criticalAlerts = (await db.prepare("SELECT COUNT(*) as count FROM alerts WHERE severity = 'CRITICAL' AND status != 'RESOLVED'").first())?.count || 0;
+    const resolvedAlerts = (await db.prepare("SELECT COUNT(*) as count FROM alerts WHERE status = 'RESOLVED'").first())?.count || 0;
+    const anomalyAlerts = (await db.prepare(`
+      SELECT COUNT(*) as count FROM alerts 
+      WHERE alert_type IN ('SUSPICIOUS_GROWTH', 'UNUSUAL_ENGAGEMENT_RATE', 'REPEATED_COMMENT_PATTERN', 'ANOMALY_DETECTED', 'VIRAL_SHIFT', 'GROWTH_ANOMALY', 'SUSPICIOUS_PATTERN')
+    `).first())?.count || 0;
+    const unreadCount = (await db.prepare('SELECT COUNT(*) as count FROM alerts WHERE is_read = 0').first())?.count || 0;
+
+    // Timeline distribution (Section VI)
+    const timelineCutoff = new Date(Date.now() - (msMap[timeframe] || 24 * 3600 * 1000)).toISOString();
+    const rawTimeline = (await db.prepare(`
+      SELECT 
+        strftime('%Y-%m-%d %H:00', detected_at) as bucket,
+        COUNT(*) as total,
+        SUM(CASE WHEN severity = 'CRITICAL' THEN 1 ELSE 0 END) as critical,
+        SUM(CASE WHEN severity = 'WARNING' THEN 1 ELSE 0 END) as warning,
+        SUM(CASE WHEN severity = 'INFO' THEN 1 ELSE 0 END) as info
+      FROM alerts
+      WHERE detected_at >= ?
+      GROUP BY bucket
+      ORDER BY bucket ASC
+      LIMIT 30
+    `).bind(timelineCutoff).all())?.results || [];
+
+    const timeline = rawTimeline.map(r => ({
+      bucket: r.bucket,
+      label: r.bucket ? r.bucket.slice(11, 16) : '00:00',
+      total: r.total || 0,
+      critical: r.critical || 0,
+      warning: r.warning || 0,
+      info: r.info || 0
+    }));
+
+    // Alert Analytics (Section X)
+    const topTypes = (await db.prepare(`
+      SELECT alert_type, COUNT(*) as count
+      FROM alerts
+      GROUP BY alert_type
+      ORDER BY count DESC
+      LIMIT 5
+    `).all())?.results || [];
+
+    const topTargets = (await db.prepare(`
+      SELECT t.id, t.author_name, COUNT(*) as alert_count
+      FROM alerts a
+      JOIN monitored_targets t ON t.id = a.target_id
+      GROUP BY t.id
+      ORDER BY alert_count DESC
+      LIMIT 5
+    `).all())?.results || [];
+
+    const resolutionRate = totalAlerts > 0 ? parseFloat(((resolvedAlerts / totalAlerts) * 100).toFixed(1)) : 100.0;
 
     return jsonResponse({
       alerts,
@@ -1125,15 +1193,29 @@ async function handleApiRoute(pathname, method, request, env, url) {
       limit,
       totalPages: Math.max(1, Math.ceil(totalCount / limit)),
       kpi: {
-        totalNotifications,
-        unreadCount,
+        totalAlerts,
+        openAlerts,
         criticalAlerts,
-        openAlerts
+        resolvedAlerts,
+        anomalyAlerts,
+        totalNotifications: totalAlerts,
+        unreadCount
+      },
+      timeline,
+      analytics: {
+        bySeverity: {
+          CRITICAL: criticalAlerts,
+          WARNING: (await db.prepare("SELECT COUNT(*) as count FROM alerts WHERE severity = 'WARNING'").first())?.count || 0,
+          INFO: (await db.prepare("SELECT COUNT(*) as count FROM alerts WHERE severity = 'INFO'").first())?.count || 0
+        },
+        topTypes,
+        topTargets,
+        resolutionRate
       }
     });
   }
 
-  // GET /api/alerts/:id (Single alert detail)
+  // Deep Alert Detail with Evidence & Audit Trail (Section VII & VIII)
   const alertDetailMatch = pathname.match(/^\/api\/alerts\/(\d+)$/);
   if (alertDetailMatch && method === 'GET') {
     const id = parseInt(alertDetailMatch[1], 10);
@@ -1143,8 +1225,72 @@ async function handleApiRoute(pathname, method, request, env, url) {
       JOIN monitored_targets t ON t.id = a.target_id
       WHERE a.id = ?
     `).bind(id).first();
-    if (!alert) return jsonResponse({ error: 'Không tìm thấy thông báo' }, 404);
-    return jsonResponse({ alert });
+    if (!alert) return jsonResponse({ error: 'Không tìm thấy cảnh báo' }, 404);
+
+    // Retrieve Audit Trail (Section IX)
+    let auditLogs = [];
+    try {
+      auditLogs = (await db.prepare(`
+        SELECT * FROM alert_audit_logs 
+        WHERE alert_id = ? 
+        ORDER BY created_at ASC
+      `).bind(id).all())?.results || [];
+    } catch {}
+
+    if (auditLogs.length === 0) {
+      auditLogs.push({
+        id: 0,
+        alert_id: id,
+        action_type: 'TRIGGERED',
+        actor: 'System / AlertEngine',
+        previous_status: null,
+        new_status: 'OPEN',
+        notes: alert.message,
+        created_at: alert.detected_at
+      });
+    }
+
+    // Retrieve Snapshots for Evidence (Section VIII)
+    const beforeSnapshot = await db.prepare(`
+      SELECT id, observed_at, total_reactions, total_comments, total_shares, source_type
+      FROM snapshots 
+      WHERE target_id = ? AND observed_at <= ? 
+      ORDER BY observed_at DESC LIMIT 1
+    `).bind(alert.target_id, alert.detected_at).first();
+
+    const afterSnapshot = await db.prepare(`
+      SELECT id, observed_at, total_reactions, total_comments, total_shares, source_type
+      FROM snapshots 
+      WHERE target_id = ? AND observed_at >= ? 
+      ORDER BY observed_at ASC LIMIT 1
+    `).bind(alert.target_id, alert.detected_at).first();
+
+    let rule = null;
+    if (alert.rule_id) {
+      rule = await db.prepare('SELECT * FROM alert_rules WHERE id = ?').bind(alert.rule_id).first();
+    }
+
+    const relatedAlerts = (await db.prepare(`
+      SELECT id, alert_type, severity, message, detected_at, status 
+      FROM alerts 
+      WHERE target_id = ? AND id != ? 
+      ORDER BY detected_at DESC LIMIT 5
+    `).bind(alert.target_id, id).all())?.results || [];
+
+    return jsonResponse({
+      alert,
+      auditLogs,
+      evidence: {
+        beforeSnapshot: beforeSnapshot || null,
+        afterSnapshot: afterSnapshot || null,
+        sourceType: alert.source_type || 'mbasic/comet',
+        evidenceStatus: alert.evidence_status || 'VERIFIED',
+        ruleVersion: alert.rule_version || 'v1.0',
+        detectionVersion: alert.detection_version || 'v2.1',
+        rule
+      },
+      relatedAlerts
+    });
   }
 
   // PATCH /api/alerts/:id/read
@@ -1171,22 +1317,104 @@ async function handleApiRoute(pathname, method, request, env, url) {
     return jsonResponse({ success: true });
   }
 
-  // PATCH /api/alerts/:id/ack (Acknowledge alert)
+  // PATCH /api/alerts/:id/ack (Acknowledge alert with Audit Log)
   const alertAckMatch = pathname.match(/^\/api\/alerts\/(\d+)\/ack$/);
   if (alertAckMatch && method === 'PATCH') {
     const id = parseInt(alertAckMatch[1], 10);
     const now = new Date().toISOString();
+    let body = {};
+    try { body = await request.json(); } catch {}
+    const actor = body.actor || 'Admin / Operator';
+    const notes = body.notes || 'Đã tiếp nhận cảnh báo để theo dõi';
+
+    const prev = await db.prepare('SELECT status FROM alerts WHERE id = ?').bind(id).first();
+    const prevStatus = prev?.status || 'OPEN';
+
     await db.prepare("UPDATE alerts SET acknowledged = 1, status = 'ACKNOWLEDGED', acknowledged_at = COALESCE(acknowledged_at, ?) WHERE id = ?").bind(now, id).run();
-    return jsonResponse({ success: true, id, status: 'ACKNOWLEDGED', acknowledged: 1 });
+
+    try {
+      await db.prepare(`
+        INSERT INTO alert_audit_logs (alert_id, action_type, actor, previous_status, new_status, notes, created_at)
+        VALUES (?, 'ACKNOWLEDGE', ?, ?, 'ACKNOWLEDGED', ?, ?)
+      `).bind(id, actor, prevStatus, notes, now).run();
+    } catch {}
+
+    return jsonResponse({ success: true, id, status: 'ACKNOWLEDGED', acknowledged: 1, acknowledged_at: now });
   }
 
-  // PATCH /api/alerts/:id/resolve (Resolve alert)
+  // PATCH /api/alerts/:id/resolve (Resolve alert with Audit Log)
   const alertResolveMatch = pathname.match(/^\/api\/alerts\/(\d+)\/resolve$/);
   if (alertResolveMatch && method === 'PATCH') {
     const id = parseInt(alertResolveMatch[1], 10);
     const now = new Date().toISOString();
-    await db.prepare("UPDATE alerts SET status = 'RESOLVED', resolved_at = ? WHERE id = ?").bind(now, id).run();
-    return jsonResponse({ success: true, id, status: 'RESOLVED', resolved_at: now });
+    let body = {};
+    try { body = await request.json(); } catch {}
+    const actor = body.actor || 'Admin / Operator';
+    const notes = body.notes || 'Đã kiểm tra và xử lý xong';
+
+    const prev = await db.prepare('SELECT status FROM alerts WHERE id = ?').bind(id).first();
+    const prevStatus = prev?.status || 'OPEN';
+
+    await db.prepare("UPDATE alerts SET status = 'RESOLVED', resolved_at = ?, resolved_by = ?, resolution_notes = ? WHERE id = ?").bind(now, actor, notes, id).run();
+
+    try {
+      await db.prepare(`
+        INSERT INTO alert_audit_logs (alert_id, action_type, actor, previous_status, new_status, notes, created_at)
+        VALUES (?, 'RESOLVE', ?, ?, 'RESOLVED', ?, ?)
+      `).bind(id, actor, prevStatus, notes, now).run();
+    } catch {}
+
+    return jsonResponse({ success: true, id, status: 'RESOLVED', resolved_at: now, resolved_by: actor });
+  }
+
+  // PATCH /api/alerts/:id/reopen (Reopen alert with Audit Log)
+  const alertReopenMatch = pathname.match(/^\/api\/alerts\/(\d+)\/reopen$/);
+  if (alertReopenMatch && method === 'PATCH') {
+    const id = parseInt(alertReopenMatch[1], 10);
+    const now = new Date().toISOString();
+    let body = {};
+    try { body = await request.json(); } catch {}
+    const actor = body.actor || 'Admin / Operator';
+    const notes = body.notes || 'Mở lại cảnh báo';
+
+    const prev = await db.prepare('SELECT status FROM alerts WHERE id = ?').bind(id).first();
+    const prevStatus = prev?.status || 'RESOLVED';
+
+    await db.prepare("UPDATE alerts SET status = 'OPEN', resolved_at = NULL, resolution_notes = NULL WHERE id = ?").bind(id).run();
+
+    try {
+      await db.prepare(`
+        INSERT INTO alert_audit_logs (alert_id, action_type, actor, previous_status, new_status, notes, created_at)
+        VALUES (?, 'REOPEN', ?, ?, 'OPEN', ?, ?)
+      `).bind(id, actor, prevStatus, notes, now).run();
+    } catch {}
+
+    return jsonResponse({ success: true, id, status: 'OPEN' });
+  }
+
+  // POST /api/alerts/:id/notes (Add Note to Audit Trail)
+  const alertNotesMatch = pathname.match(/^\/api\/alerts\/(\d+)\/notes$/);
+  if (alertNotesMatch && method === 'POST') {
+    const id = parseInt(alertNotesMatch[1], 10);
+    const now = new Date().toISOString();
+    let body = {};
+    try { body = await request.json(); } catch {}
+    const actor = body.actor || 'Admin / Operator';
+    const notes = (body.notes || '').trim();
+    if (!notes) return jsonResponse({ error: 'Nội dung ghi chú không được để trống' }, 400);
+
+    const prev = await db.prepare('SELECT status FROM alerts WHERE id = ?').bind(id).first();
+
+    try {
+      await db.prepare(`
+        INSERT INTO alert_audit_logs (alert_id, action_type, actor, previous_status, new_status, notes, created_at)
+        VALUES (?, 'ADD_NOTE', ?, ?, ?, ?, ?)
+      `).bind(id, actor, prev?.status || 'OPEN', prev?.status || 'OPEN', notes, now).run();
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+
+    return jsonResponse({ success: true, id, created_at: now });
   }
 
   // DELETE /api/alerts/:id

@@ -286,9 +286,15 @@ class AlertEngine {
   /**
    * Main Record & Deduplicate Engine
    */
-  recordAlert({ targetId, alertType, metricName, oldVal, newVal, delta, threshold, severity, message, detectedAt, payload, ruleId, cooldownSec = 300 }) {
-    const dedupKey = `target_${targetId}_${alertType}_${metricName || 'metric'}`;
-    const nowMs = new Date(detectedAt).getTime();
+  recordAlert({ targetId, alertType, metricName, oldVal, newVal, delta, threshold, severity, message, detectedAt, payload, ruleId, cooldownSec = 300, evidenceStatus, sourceType, detectionVersion }) {
+    const safeOldVal = oldVal !== undefined ? oldVal : (payload?.oldVal ?? 0);
+    const safeNewVal = newVal !== undefined ? newVal : (payload?.newVal ?? 0);
+    const safeDelta = delta !== undefined ? delta : (payload?.delta ?? 0);
+    const safeThreshold = threshold !== undefined ? threshold : (payload?.threshold ?? 0);
+    const safeMetricName = metricName || 'system';
+    const safeDetectedAt = detectedAt || new Date().toISOString();
+    const dedupKey = `target_${targetId}_${alertType}_${safeMetricName}`;
+    const nowMs = new Date(safeDetectedAt).getTime();
 
     // Deduplication check: Is there an existing OPEN alert with this dedup_key within cooldownSec?
     try {
@@ -310,10 +316,10 @@ class AlertEngine {
             ...existingPayload,
             ...(payload || {}),
             occurrences,
-            last_delta: delta,
-            max_delta: Math.max(existing.delta, delta),
-            peak_val: Math.max(existing.new_val, newVal),
-            updated_at: detectedAt
+            last_delta: safeDelta,
+            max_delta: Math.max(existing.delta || 0, safeDelta),
+            peak_val: Math.max(existing.new_val || 0, safeNewVal),
+            updated_at: safeDetectedAt
           });
 
           // Escalate severity if incoming severity is higher
@@ -326,20 +332,20 @@ class AlertEngine {
             UPDATE alerts 
             SET new_val = ?, delta = ?, severity = ?, detected_at = ?, payload = ?, is_read = 0
             WHERE id = ?
-          `).run(newVal, delta, finalSeverity, detectedAt, updatedPayload, existing.id);
+          `).run(safeNewVal, safeDelta, finalSeverity, safeDetectedAt, updatedPayload, existing.id);
 
           const updatedAlert = {
             id: existing.id,
             targetId,
             alertType,
-            metricName,
+            metricName: safeMetricName,
             oldVal: existing.old_val,
-            newVal,
-            delta,
-            threshold,
+            newVal: safeNewVal,
+            delta: safeDelta,
+            threshold: safeThreshold,
             severity: finalSeverity,
             message,
-            detectedAt,
+            detectedAt: safeDetectedAt,
             acknowledged: existing.acknowledged,
             is_read: 0,
             status: 'OPEN',
@@ -359,19 +365,44 @@ class AlertEngine {
     const payloadStr = typeof payload === 'string' ? payload : JSON.stringify(payload || { occurrences: 1 });
     const info = this.db.prepare(`
       INSERT INTO alerts (
-        target_id, alert_type, metric_name, old_val, new_val, delta, threshold, severity, message, detected_at, acknowledged, is_read, status, dedup_key, payload, rule_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'OPEN', ?, ?, ?)
-    `).run(targetId, alertType, metricName, oldVal, newVal, delta, threshold, severity, message, detectedAt, dedupKey, payloadStr, ruleId || null);
-
-    const alertObject = {
-      id: Number(info.lastInsertRowid),
+        target_id, alert_type, metric_name, old_val, new_val, delta, threshold, severity, message, detected_at, acknowledged, is_read, status, dedup_key, payload, rule_id, evidence_status, source_type, detection_version
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'OPEN', ?, ?, ?, ?, ?, ?)
+    `).run(
       targetId,
       alertType,
-      metricName,
-      oldVal,
-      newVal,
-      delta,
-      threshold,
+      safeMetricName,
+      safeOldVal,
+      safeNewVal,
+      safeDelta,
+      safeThreshold,
+      severity,
+      message,
+      safeDetectedAt,
+      dedupKey,
+      payloadStr,
+      ruleId || null,
+      evidenceStatus || 'VERIFIED',
+      sourceType || 'mbasic/comet',
+      detectionVersion || 'NHN Detection Engine v2.1'
+    );
+
+    const insertedId = Number(info.lastInsertRowid);
+    try {
+      this.db.prepare(`
+        INSERT INTO alert_audit_logs (alert_id, action_type, actor, previous_status, new_status, notes, created_at)
+        VALUES (?, 'TRIGGERED', 'System / AlertEngine', NULL, 'OPEN', ?, ?)
+      `).run(insertedId, message, safeDetectedAt);
+    } catch {}
+
+    const alertObject = {
+      id: insertedId,
+      targetId,
+      alertType,
+      metricName: safeMetricName,
+      oldVal: safeOldVal,
+      newVal: safeNewVal,
+      delta: safeDelta,
+      threshold: safeThreshold,
       severity,
       message,
       detectedAt,

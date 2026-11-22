@@ -562,8 +562,9 @@ function createServer() {
   });
 
   // 10. Notifications & Alert Center Endpoints (Prompt 03)
+  // 6. Alerts & Audit Trail Endpoints (Prompt 05: Redesign Alert History & Audit Log)
   app.get('/api/alerts', (req, res) => {
-    const { status, read, severity, group, target_id, search, timeframe = 'ALL', page = 1, limit = 20 } = req.query;
+    const { status, read, severity, alert_type, group, target_id, search, timeframe = 'ALL', page = 1, limit = 20 } = req.query;
     const pageNum = Math.max(1, parseInt(page, 10));
     const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10)));
     const offset = (pageNum - 1) * limitNum;
@@ -590,8 +591,14 @@ function createServer() {
       params.push(severity);
     }
 
+    // Filter by specific alert type
+    if (alert_type && alert_type !== 'ALL') {
+      whereClause += ' AND a.alert_type = ?';
+      params.push(alert_type);
+    }
+
     // Filter by target_id
-    if (target_id) {
+    if (target_id && target_id !== 'ALL') {
       whereClause += ' AND a.target_id = ?';
       params.push(parseInt(target_id, 10));
     }
@@ -599,11 +606,11 @@ function createServer() {
     // Filter by event group
     if (group && group !== 'ALL') {
       if (group === 'interaction') {
-        whereClause += " AND a.alert_type IN ('REACTION_SPIKE', 'COMMENT_SURGE', 'COMMENT_SPIKE', 'SHARE_BURST', 'SHARE_SPIKE', 'VIRAL_SHIFT', 'ENGAGEMENT_DROP', 'ENGAGEMENT_MILESTONE')";
+        whereClause += " AND a.alert_type IN ('REACTION_SPIKE', 'LIKE_SPIKE', 'LOVE_SPIKE', 'CARE_SPIKE', 'HAHA_SPIKE', 'WOW_SPIKE', 'SAD_SPIKE', 'ANGRY_SPIKE', 'COMMENT_SURGE', 'COMMENT_SPIKE', 'SHARE_BURST', 'SHARE_SPIKE', 'VIRAL_SHIFT', 'ENGAGEMENT_DROP', 'ENGAGEMENT_MILESTONE')";
       } else if (group === 'suspicious') {
-        whereClause += " AND a.alert_type IN ('SUSPICIOUS_GROWTH', 'UNUSUAL_ENGAGEMENT_RATE', 'REPEATED_COMMENT_PATTERN', 'ANOMALY_DETECTED')";
+        whereClause += " AND a.alert_type IN ('SUSPICIOUS_GROWTH', 'UNUSUAL_ENGAGEMENT_RATE', 'REPEATED_COMMENT_PATTERN', 'ANOMALY_DETECTED', 'GROWTH_ANOMALY', 'SUSPICIOUS_PATTERN')";
       } else if (group === 'monitor') {
-        whereClause += " AND a.alert_type IN ('MONITOR_STARTED', 'MONITOR_PAUSED', 'MONITOR_RESUMED', 'MONITOR_STOPPED', 'MONITOR_ERROR', 'SYNC_FAILED', 'SYNC_RECOVERED')";
+        whereClause += " AND a.alert_type IN ('MONITOR_STARTED', 'MONITOR_PAUSED', 'MONITOR_RESUMED', 'MONITOR_STOPPED', 'MONITOR_ERROR', 'SYNC_FAILED', 'SYNC_RECOVERED', 'SYNC_TIMEOUT')";
       } else if (group === 'connection') {
         whereClause += " AND a.alert_type IN ('AUTH_LOST', 'TOKEN_EXPIRED', 'PERMISSION_REQUIRED', 'API_RATE_LIMITED', 'SOURCE_UNAVAILABLE', 'CONNECTION_FAILED', 'CONNECTION_RESTORED')";
       } else if (group === 'system') {
@@ -611,26 +618,38 @@ function createServer() {
       }
     }
 
-    // Filter by search term
+    // Filter by search term (supports #ALT-123, alert message, author name, URL)
     if (search && search.trim()) {
-      whereClause += ' AND (a.message LIKE ? OR a.alert_type LIKE ? OR t.author_name LIKE ? OR t.normalized_url LIKE ?)';
-      const term = `%${search.trim()}%`;
-      params.push(term, term, term, term);
+      const trimmed = search.trim();
+      const numMatch = trimmed.match(/^#?ALT-(\d+)$/i) || trimmed.match(/^(\d+)$/);
+      if (numMatch) {
+        whereClause += ' AND (a.id = ? OR a.message LIKE ? OR a.alert_type LIKE ? OR t.author_name LIKE ? OR t.normalized_url LIKE ?)';
+        const idVal = parseInt(numMatch[1], 10);
+        const term = `%${trimmed}%`;
+        params.push(idVal, term, term, term, term);
+      } else {
+        whereClause += ' AND (a.message LIKE ? OR a.alert_type LIKE ? OR t.author_name LIKE ? OR t.normalized_url LIKE ?)';
+        const term = `%${trimmed}%`;
+        params.push(term, term, term, term);
+      }
     }
 
     // Filter by timeframe
-    if (timeframe && timeframe !== 'ALL') {
-      const msMap = {
-        '1H': 60 * 60 * 1000,
-        '24H': 24 * 60 * 60 * 1000,
-        '7D': 7 * 24 * 60 * 60 * 1000,
-        '30D': 30 * 24 * 60 * 60 * 1000
-      };
-      if (msMap[timeframe]) {
-        const cutoff = new Date(Date.now() - msMap[timeframe]).toISOString();
-        whereClause += ' AND a.detected_at >= ?';
-        params.push(cutoff);
-      }
+    const msMap = {
+      '15M': 15 * 60 * 1000,
+      '30M': 30 * 60 * 1000,
+      '1H': 60 * 60 * 1000,
+      '3H': 3 * 3600 * 1000,
+      '6H': 6 * 3600 * 1000,
+      '12H': 12 * 3600 * 1000,
+      '24H': 24 * 3600 * 1000,
+      '7D': 7 * 24 * 60 * 60 * 1000,
+      '30D': 30 * 24 * 60 * 60 * 1000
+    };
+    if (timeframe && timeframe !== 'ALL' && msMap[timeframe]) {
+      const cutoff = new Date(Date.now() - msMap[timeframe]).toISOString();
+      whereClause += ' AND a.detected_at >= ?';
+      params.push(cutoff);
     }
 
     const countSql = `SELECT COUNT(*) as count FROM alerts a JOIN monitored_targets t ON t.id = a.target_id ${whereClause}`;
@@ -646,11 +665,61 @@ function createServer() {
     `;
     const alerts = db.prepare(sql).all(...params, limitNum, offset);
 
-    // 4 Notification KPIs
-    const totalNotifications = db.prepare('SELECT COUNT(*) as count FROM alerts').get()?.count || 0;
-    const unreadCount = db.prepare('SELECT COUNT(*) as count FROM alerts WHERE is_read = 0').get()?.count || 0;
-    const criticalAlerts = db.prepare("SELECT COUNT(*) as count FROM alerts WHERE severity = 'CRITICAL' AND status != 'RESOLVED'").get()?.count || 0;
+    // 5 Professional Alert KPIs (Section III.2)
+    const totalAlerts = db.prepare('SELECT COUNT(*) as count FROM alerts').get()?.count || 0;
     const openAlerts = db.prepare("SELECT COUNT(*) as count FROM alerts WHERE status = 'OPEN'").get()?.count || 0;
+    const criticalAlerts = db.prepare("SELECT COUNT(*) as count FROM alerts WHERE severity = 'CRITICAL' AND status != 'RESOLVED'").get()?.count || 0;
+    const resolvedAlerts = db.prepare("SELECT COUNT(*) as count FROM alerts WHERE status = 'RESOLVED'").get()?.count || 0;
+    const anomalyAlerts = db.prepare(`
+      SELECT COUNT(*) as count FROM alerts 
+      WHERE alert_type IN ('SUSPICIOUS_GROWTH', 'UNUSUAL_ENGAGEMENT_RATE', 'REPEATED_COMMENT_PATTERN', 'ANOMALY_DETECTED', 'VIRAL_SHIFT', 'GROWTH_ANOMALY', 'SUSPICIOUS_PATTERN')
+    `).get()?.count || 0;
+    const unreadCount = db.prepare('SELECT COUNT(*) as count FROM alerts WHERE is_read = 0').get()?.count || 0;
+
+    // Timeline distribution (Section VI)
+    const timelineCutoff = new Date(Date.now() - (msMap[timeframe] || 24 * 3600 * 1000)).toISOString();
+    const rawTimeline = db.prepare(`
+      SELECT 
+        strftime('%Y-%m-%d %H:00', detected_at) as bucket,
+        COUNT(*) as total,
+        SUM(CASE WHEN severity = 'CRITICAL' THEN 1 ELSE 0 END) as critical,
+        SUM(CASE WHEN severity = 'WARNING' THEN 1 ELSE 0 END) as warning,
+        SUM(CASE WHEN severity = 'INFO' THEN 1 ELSE 0 END) as info
+      FROM alerts
+      WHERE detected_at >= ?
+      GROUP BY bucket
+      ORDER BY bucket ASC
+      LIMIT 30
+    `).all(timelineCutoff) || [];
+
+    const timeline = rawTimeline.map(r => ({
+      bucket: r.bucket,
+      label: r.bucket ? r.bucket.slice(11, 16) : '00:00',
+      total: r.total || 0,
+      critical: r.critical || 0,
+      warning: r.warning || 0,
+      info: r.info || 0
+    }));
+
+    // Alert Analytics (Section X)
+    const topTypes = db.prepare(`
+      SELECT alert_type, COUNT(*) as count
+      FROM alerts
+      GROUP BY alert_type
+      ORDER BY count DESC
+      LIMIT 5
+    `).all() || [];
+
+    const topTargets = db.prepare(`
+      SELECT t.id, t.author_name, COUNT(*) as alert_count
+      FROM alerts a
+      JOIN monitored_targets t ON t.id = a.target_id
+      GROUP BY t.id
+      ORDER BY alert_count DESC
+      LIMIT 5
+    `).all() || [];
+
+    const resolutionRate = totalAlerts > 0 ? parseFloat(((resolvedAlerts / totalAlerts) * 100).toFixed(1)) : 100.0;
 
     res.json({
       alerts,
@@ -659,15 +728,29 @@ function createServer() {
       limit: limitNum,
       totalPages: Math.max(1, Math.ceil(totalCount / limitNum)),
       kpi: {
-        totalNotifications,
-        unreadCount,
+        totalAlerts,
+        openAlerts,
         criticalAlerts,
-        openAlerts
+        resolvedAlerts,
+        anomalyAlerts,
+        totalNotifications: totalAlerts,
+        unreadCount
+      },
+      timeline,
+      analytics: {
+        bySeverity: {
+          CRITICAL: criticalAlerts,
+          WARNING: db.prepare("SELECT COUNT(*) as count FROM alerts WHERE severity = 'WARNING'").get()?.count || 0,
+          INFO: db.prepare("SELECT COUNT(*) as count FROM alerts WHERE severity = 'INFO'").get()?.count || 0
+        },
+        topTypes,
+        topTargets,
+        resolutionRate
       }
     });
   });
 
-  // Single alert detail
+  // Deep Alert Detail with Evidence & Audit Trail (Section VII & VIII)
   app.get('/api/alerts/:id', (req, res) => {
     const id = parseInt(req.params.id, 10);
     const alert = db.prepare(`
@@ -676,8 +759,74 @@ function createServer() {
       JOIN monitored_targets t ON t.id = a.target_id
       WHERE a.id = ?
     `).get(id);
-    if (!alert) return res.status(404).json({ error: 'Không tìm thấy thông báo' });
-    res.json({ alert });
+    if (!alert) return res.status(404).json({ error: 'Không tìm thấy cảnh báo' });
+
+    // Retrieve Audit Trail (Section IX)
+    let auditLogs = [];
+    try {
+      auditLogs = db.prepare(`
+        SELECT * FROM alert_audit_logs 
+        WHERE alert_id = ? 
+        ORDER BY created_at ASC
+      `).all(id) || [];
+    } catch {}
+
+    if (auditLogs.length === 0) {
+      auditLogs.push({
+        id: 0,
+        alert_id: id,
+        action_type: 'TRIGGERED',
+        actor: 'System / AlertEngine',
+        previous_status: null,
+        new_status: 'OPEN',
+        notes: alert.message,
+        created_at: alert.detected_at
+      });
+    }
+
+    // Retrieve Snapshots for Evidence (Section VIII)
+    const beforeSnapshot = db.prepare(`
+      SELECT id, observed_at, total_reactions, total_comments, total_shares, source_type
+      FROM snapshots 
+      WHERE target_id = ? AND observed_at <= ? 
+      ORDER BY observed_at DESC LIMIT 1
+    `).get(alert.target_id, alert.detected_at);
+
+    const afterSnapshot = db.prepare(`
+      SELECT id, observed_at, total_reactions, total_comments, total_shares, source_type
+      FROM snapshots 
+      WHERE target_id = ? AND observed_at >= ? 
+      ORDER BY observed_at ASC LIMIT 1
+    `).get(alert.target_id, alert.detected_at);
+
+    // Rule info if triggered by custom rule
+    let rule = null;
+    if (alert.rule_id) {
+      rule = db.prepare('SELECT * FROM alert_rules WHERE id = ?').get(alert.rule_id);
+    }
+
+    // Related Alerts on same post
+    const relatedAlerts = db.prepare(`
+      SELECT id, alert_type, severity, message, detected_at, status 
+      FROM alerts 
+      WHERE target_id = ? AND id != ? 
+      ORDER BY detected_at DESC LIMIT 5
+    `).all(alert.target_id, id) || [];
+
+    res.json({
+      alert,
+      auditLogs,
+      evidence: {
+        beforeSnapshot: beforeSnapshot || null,
+        afterSnapshot: afterSnapshot || null,
+        sourceType: alert.source_type || 'mbasic/comet',
+        evidenceStatus: alert.evidence_status || 'VERIFIED',
+        ruleVersion: alert.rule_version || 'v1.0',
+        detectionVersion: alert.detection_version || 'v2.1',
+        rule
+      },
+      relatedAlerts
+    });
   });
 
   // Mark single alert as read
@@ -702,28 +851,100 @@ function createServer() {
     res.json({ success: true, updated: result.changes });
   });
 
-  // Acknowledge alert (OPEN -> ACKNOWLEDGED)
+  // Acknowledge alert (OPEN -> ACKNOWLEDGED) with Audit Log
   app.patch('/api/alerts/:id/ack', (req, res) => {
     const id = parseInt(req.params.id, 10);
     const now = new Date().toISOString();
+    const { actor = 'Admin / Operator', notes = 'Đã tiếp nhận cảnh báo để theo dõi' } = req.body || {};
+
+    const prev = db.prepare('SELECT status FROM alerts WHERE id = ?').get(id);
+    const prevStatus = prev?.status || 'OPEN';
+
     db.prepare(`
       UPDATE alerts 
       SET acknowledged = 1, status = 'ACKNOWLEDGED', acknowledged_at = COALESCE(acknowledged_at, ?) 
       WHERE id = ?
     `).run(now, id);
-    res.json({ success: true, id, status: 'ACKNOWLEDGED', acknowledged: 1 });
+
+    try {
+      db.prepare(`
+        INSERT INTO alert_audit_logs (alert_id, action_type, actor, previous_status, new_status, notes, created_at)
+        VALUES (?, 'ACKNOWLEDGE', ?, ?, 'ACKNOWLEDGED', ?, ?)
+      `).run(id, actor, prevStatus, notes, now);
+    } catch {}
+
+    res.json({ success: true, id, status: 'ACKNOWLEDGED', acknowledged: 1, acknowledged_at: now });
   });
 
-  // Resolve alert (-> RESOLVED)
+  // Resolve alert (-> RESOLVED) with Audit Log
   app.patch('/api/alerts/:id/resolve', (req, res) => {
     const id = parseInt(req.params.id, 10);
     const now = new Date().toISOString();
+    const { actor = 'Admin / Operator', notes = 'Đã kiểm tra và xử lý xong' } = req.body || {};
+
+    const prev = db.prepare('SELECT status FROM alerts WHERE id = ?').get(id);
+    const prevStatus = prev?.status || 'OPEN';
+
     db.prepare(`
       UPDATE alerts 
-      SET status = 'RESOLVED', resolved_at = ? 
+      SET status = 'RESOLVED', resolved_at = ?, resolved_by = ?, resolution_notes = ? 
       WHERE id = ?
-    `).run(now, id);
-    res.json({ success: true, id, status: 'RESOLVED', resolved_at: now });
+    `).run(now, actor, notes, id);
+
+    try {
+      db.prepare(`
+        INSERT INTO alert_audit_logs (alert_id, action_type, actor, previous_status, new_status, notes, created_at)
+        VALUES (?, 'RESOLVE', ?, ?, 'RESOLVED', ?, ?)
+      `).run(id, actor, prevStatus, notes, now);
+    } catch {}
+
+    res.json({ success: true, id, status: 'RESOLVED', resolved_at: now, resolved_by: actor });
+  });
+
+  // Reopen alert (-> OPEN) with Audit Log
+  app.patch('/api/alerts/:id/reopen', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const now = new Date().toISOString();
+    const { actor = 'Admin / Operator', notes = 'Mở lại cảnh báo' } = req.body || {};
+
+    const prev = db.prepare('SELECT status FROM alerts WHERE id = ?').get(id);
+    const prevStatus = prev?.status || 'RESOLVED';
+
+    db.prepare(`
+      UPDATE alerts 
+      SET status = 'OPEN', resolved_at = NULL, resolution_notes = NULL 
+      WHERE id = ?
+    `).run(id);
+
+    try {
+      db.prepare(`
+        INSERT INTO alert_audit_logs (alert_id, action_type, actor, previous_status, new_status, notes, created_at)
+        VALUES (?, 'REOPEN', ?, ?, 'OPEN', ?, ?)
+      `).run(id, actor, prevStatus, notes, now);
+    } catch {}
+
+    res.json({ success: true, id, status: 'OPEN' });
+  });
+
+  // Add Note to Alert Audit Trail
+  app.post('/api/alerts/:id/notes', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const now = new Date().toISOString();
+    const { actor = 'Admin / Operator', notes = '' } = req.body || {};
+    if (!notes.trim()) return res.status(400).json({ error: 'Nội dung ghi chú không được để trống' });
+
+    const prev = db.prepare('SELECT status FROM alerts WHERE id = ?').get(id);
+
+    try {
+      db.prepare(`
+        INSERT INTO alert_audit_logs (alert_id, action_type, actor, previous_status, new_status, notes, created_at)
+        VALUES (?, 'ADD_NOTE', ?, ?, ?, ?, ?)
+      `).run(id, actor, prev?.status || 'OPEN', prev?.status || 'OPEN', notes.trim(), now);
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+
+    res.json({ success: true, id, created_at: now });
   });
 
   // Delete single alert

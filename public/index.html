@@ -148,8 +148,8 @@
       <span>So sánh nội dung</span>
     </button>
     <button onclick="switchTab('alerts')" id="tab-alerts" class="py-3.5 border-b-2 border-transparent text-txt-sub hover:text-txt-body font-medium flex items-center gap-2 transition">
-      <svg class="w-4 h-4 text-txt-sub" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
-      <span>Trung tâm thông báo (<span id="tabAlertsCount">0</span>)</span>
+      <svg class="w-4 h-4 text-txt-sub" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+      <span>Nhật ký cảnh báo (<span id="tabAlertsCount">0</span>)</span>
     </button>
   </nav>
 
@@ -957,157 +957,256 @@
       </div>
     </div>
 
-    <!-- ================= TAB: ALERTS (REDESIGNED: TRUNG TÂM THÔNG BÁO) ================= -->
+    <!-- ================= TAB: ALERTS (REDESIGNED: NHẬT KÝ CẢNH BÁO & AUDIT LOG - PROMPT 05) ================= -->
     <div id="view-alerts" class="hidden space-y-6">
 
-      <!-- HEADER TRUNG TÂM THÔNG BÁO -->
-      <div class="surface-card rounded-2xl p-5 border border-surface-border flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <!-- 1. HEADER NHẬT KÝ CẢNH BÁO & TOOLBAR -->
+      <div class="surface-card rounded-2xl p-5 border border-surface-border flex flex-col xl:flex-row xl:items-center justify-between gap-4">
         <div>
           <div class="flex items-center gap-3">
-            <h2 class="text-lg font-extrabold tracking-tight text-txt-title">Trung tâm thông báo & Cảnh báo</h2>
+            <h2 class="text-lg font-extrabold tracking-tight text-txt-title">Nhật ký cảnh báo</h2>
             <span class="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/30 inline-flex items-center gap-1.5">
               <span class="w-1.5 h-1.5 rounded-full bg-brand-cyan animate-pulse"></span>
-              <span>Giám sát bất thường 24/7</span>
+              <span>Audit Log 24/7</span>
             </span>
           </div>
-          <p class="text-xs text-txt-sub mt-1">Theo dõi các biến động, sự kiện quan trọng và tình trạng giám sát Facebook tức thời</p>
+          <p class="text-xs text-txt-sub mt-1">Tra cứu, phân tích và kiểm chứng lịch sử những sự kiện bất thường được phát hiện trong quá trình giám sát Facebook</p>
         </div>
 
         <div class="flex flex-wrap items-center gap-2.5">
-          <button onclick="markAllNotificationsRead()" class="px-3.5 py-2 bg-surface-elevated hover:bg-surface text-txt-body text-xs font-semibold rounded-xl border border-surface-border flex items-center gap-1.5 transition active:scale-95 shadow-sm cursor-pointer" title="Đánh dấu tất cả đã đọc">
-            <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-            <span>Đánh dấu đã đọc hết</span>
-          </button>
-
-          <button onclick="openAlertRulesModal()" class="px-3.5 py-2 bg-brand-blue hover:bg-brand-ocean text-white text-xs font-semibold rounded-xl border border-brand-cyan/20 flex items-center gap-1.5 transition active:scale-95 shadow-sm cursor-pointer" title="Cấu hình quy tắc cảnh báo">
+          <button onclick="openAlertRulesModal()" class="px-3.5 py-2 bg-surface-elevated hover:bg-surface text-txt-body text-xs font-semibold rounded-xl border border-surface-border flex items-center gap-1.5 transition active:scale-95 shadow-sm cursor-pointer" title="Cấu hình quy tắc cảnh báo">
             <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
             <span>Quy tắc cảnh báo</span>
           </button>
 
-          <button onclick="requestBrowserNotificationPermission()" class="px-3.5 py-2 bg-surface-elevated hover:bg-surface text-txt-body text-xs font-semibold rounded-xl border border-surface-border flex items-center gap-1.5 transition active:scale-95 shadow-sm cursor-pointer" title="Bật thông báo ngoài Desktop">
+          <button onclick="requestBrowserNotificationPermission()" class="px-3.5 py-2 bg-surface-elevated hover:bg-surface text-txt-body text-xs font-semibold rounded-xl border border-surface-border flex items-center gap-1.5 transition active:scale-95 shadow-sm cursor-pointer" title="Bật thông báo Desktop">
             <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
             <span>Thông báo Desktop</span>
           </button>
 
-          <button id="btnRefreshAlerts" onclick="fetchAlerts()" class="p-2 bg-surface-elevated hover:bg-surface text-xs text-txt-body rounded-xl border border-surface-border flex items-center gap-1 transition active:scale-95 shadow-sm cursor-pointer" title="Làm mới">
+          <button id="btnRefreshAlerts" onclick="fetchAlerts(1)" class="p-2 bg-surface-elevated hover:bg-surface text-xs text-txt-body rounded-xl border border-surface-border flex items-center gap-1 transition active:scale-95 shadow-sm cursor-pointer" title="Làm mới dữ liệu">
             <svg id="refreshAlertsIcon" class="w-4 h-4 text-brand-cyan transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+          </button>
+
+          <!-- Dropdown Xuất báo cáo (Section XII) -->
+          <div class="relative inline-block text-left" id="alertExportMenuContainer">
+            <button onclick="toggleAlertExportMenu()" class="px-3.5 py-2 bg-brand-blue hover:bg-brand-ocean text-white text-xs font-semibold rounded-xl border border-brand-cyan/20 flex items-center gap-1.5 transition active:scale-95 shadow-sm cursor-pointer">
+              <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+              <span>Xuất nhật ký</span>
+              <svg class="w-3 h-3 ml-0.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+            </button>
+            <div id="alertExportDropdown" class="hidden absolute right-0 mt-2 w-48 rounded-xl shadow-2xl bg-surface-card border border-surface-border p-1.5 z-50">
+              <button onclick="exportAlertsReport('csv')" class="w-full text-left px-3 py-2 text-xs text-txt-body hover:bg-surface-elevated rounded-lg flex items-center gap-2 transition cursor-pointer">
+                <span class="text-emerald-400 font-bold font-mono">CSV</span>
+                <span>Tải tệp bảng tính (.csv)</span>
+              </button>
+              <button onclick="exportAlertsReport('json')" class="w-full text-left px-3 py-2 text-xs text-txt-body hover:bg-surface-elevated rounded-lg flex items-center gap-2 transition cursor-pointer">
+                <span class="text-amber-400 font-bold font-mono">JSON</span>
+                <span>Tải hồ sơ kiểm toán (.json)</span>
+              </button>
+              <button onclick="exportAlertsReport('print')" class="w-full text-left px-3 py-2 text-xs text-txt-body hover:bg-surface-elevated rounded-lg flex items-center gap-2 transition border-t border-surface-border/50 mt-1 pt-1.5 cursor-pointer">
+                <svg class="w-3.5 h-3.5 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+                <span>In / Xuất PDF báo cáo</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. 5 THẺ KPI TỔNG QUAN (Section III.2) -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+        <!-- KPI 1: TOTAL_ALERTS -->
+        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between shadow-sm">
+          <div class="flex items-center justify-between text-txt-sub">
+            <span class="text-xs font-semibold">Tổng cảnh báo</span>
+            <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+          </div>
+          <div class="mt-2 text-2xl font-extrabold text-txt-title font-mono" id="alertKpiTotal">0</div>
+          <div class="mt-1 text-[11px] text-txt-sub">Toàn bộ hồ sơ sự kiện</div>
+        </div>
+
+        <!-- KPI 2: OPEN_ALERTS -->
+        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between shadow-sm">
+          <div class="flex items-center justify-between text-txt-sub">
+            <span class="text-xs font-semibold">Đang cần xử lý</span>
+            <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+          </div>
+          <div class="mt-2 text-2xl font-extrabold text-amber-400 font-mono" id="alertKpiOpen">0</div>
+          <div class="mt-1 text-[11px] text-amber-400/80 font-medium">Trạng thái OPEN</div>
+        </div>
+
+        <!-- KPI 3: CRITICAL_ALERTS -->
+        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between shadow-sm">
+          <div class="flex items-center justify-between text-txt-sub">
+            <span class="text-xs font-semibold">Nghiêm trọng</span>
+            <svg class="w-4 h-4 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+          </div>
+          <div class="mt-2 text-2xl font-extrabold text-rose-400 font-mono" id="alertKpiCritical">0</div>
+          <div class="mt-1 text-[11px] text-rose-400/80 font-medium">Mức độ CRITICAL</div>
+        </div>
+
+        <!-- KPI 4: RESOLVED_ALERTS -->
+        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between shadow-sm">
+          <div class="flex items-center justify-between text-txt-sub">
+            <span class="text-xs font-semibold">Đã giải quyết</span>
+            <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+          </div>
+          <div class="mt-2 text-2xl font-extrabold text-emerald-400 font-mono" id="alertKpiResolved">0</div>
+          <div class="mt-1 text-[11px] text-emerald-400/80 font-medium">Trạng thái RESOLVED</div>
+        </div>
+
+        <!-- KPI 5: ANOMALY_ALERTS -->
+        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between shadow-sm">
+          <div class="flex items-center justify-between text-txt-sub">
+            <span class="text-xs font-semibold">Sự kiện bất thường</span>
+            <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+          </div>
+          <div class="mt-2 text-2xl font-extrabold text-brand-cyan font-mono" id="alertKpiAnomaly">0</div>
+          <div class="mt-1 text-[11px] text-txt-sub">Tăng vọt / Seeding lặp</div>
+        </div>
+      </div>
+
+      <!-- 3. ALERT TIMELINE & SEVERITY ANALYTICS (Section VI & X) -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Col 1 (2 cols): Alert Timeline Bar Chart -->
+        <div class="lg:col-span-2 surface-card rounded-2xl p-5 border border-surface-border space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 class="text-sm font-bold text-txt-title flex items-center gap-2">
+                <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                <span>Dòng thời gian cảnh báo (Alert Timeline)</span>
+              </h3>
+              <p class="text-xs text-txt-sub">Phân bố tần suất phát hiện cảnh báo theo từng khung giờ và mức độ</p>
+            </div>
+
+            <!-- Timeframe selector pills -->
+            <div class="flex items-center bg-surface-elevated/70 p-1 rounded-xl border border-surface-border overflow-x-auto text-xs">
+              <button onclick="setAlertTimeframe('15M')" class="alert-tf-btn px-2 py-0.5 rounded-lg font-medium transition text-txt-sub hover:text-txt-title" data-tf="15M">15M</button>
+              <button onclick="setAlertTimeframe('1H')" class="alert-tf-btn px-2 py-0.5 rounded-lg font-medium transition text-txt-sub hover:text-txt-title" data-tf="1H">1H</button>
+              <button onclick="setAlertTimeframe('6H')" class="alert-tf-btn px-2 py-0.5 rounded-lg font-medium transition text-txt-sub hover:text-txt-title" data-tf="6H">6H</button>
+              <button onclick="setAlertTimeframe('24H')" class="alert-tf-btn px-2 py-0.5 rounded-lg font-medium transition text-txt-sub hover:text-txt-title" data-tf="24H">24H</button>
+              <button onclick="setAlertTimeframe('7D')" class="alert-tf-btn px-2 py-0.5 rounded-lg font-medium transition text-txt-sub hover:text-txt-title" data-tf="7D">7D</button>
+              <button onclick="setAlertTimeframe('ALL')" class="alert-tf-btn px-2 py-0.5 rounded-lg font-medium transition bg-brand-blue text-white shadow-sm" data-tf="ALL">Tất cả</button>
+            </div>
+          </div>
+
+          <div class="h-64 relative">
+            <canvas id="alertTimelineChartCanvas"></canvas>
+          </div>
+        </div>
+
+        <!-- Col 2 (1 col): Severity Distribution & Resolution Stats -->
+        <div class="surface-card rounded-2xl p-5 border border-surface-border space-y-4 flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between">
+              <h3 class="text-sm font-bold text-txt-title flex items-center gap-2">
+                <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"></path></svg>
+                <span>Cơ cấu mức độ</span>
+              </h3>
+              <span id="alertResolutionRateBadge" class="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold font-mono">Xử lý: 100%</span>
+            </div>
+            <p class="text-xs text-txt-sub mt-0.5">Tỷ lệ theo Critical, Warning, Info</p>
+          </div>
+
+          <div class="h-44 relative flex items-center justify-center">
+            <canvas id="alertSeverityDonutChartCanvas"></canvas>
+          </div>
+
+          <div id="alertTopTypesList" class="space-y-1.5 pt-2 border-t border-surface-border/60 text-xs text-txt-sub">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. BỘ LỌC ĐA TIÊU CHÍ (Section III.1) -->
+      <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-wrap gap-3 items-center justify-between">
+        <div class="flex flex-wrap items-center gap-2.5 flex-1">
+          <!-- Search input with direct ID search support (#ALT-123) -->
+          <div class="relative min-w-[220px] flex-1">
+            <input type="text" id="alertSearchInput" oninput="debounceFetchAlerts()" placeholder="Tìm mã cảnh báo (#ALT-xxx), nội dung, bài viết..." class="w-full rounded-xl px-3.5 py-2 text-xs placeholder-txt-muted bg-surface-elevated border border-surface-border focus:border-brand-cyan transition text-txt-body">
+          </div>
+
+          <!-- Target Post Filter -->
+          <select id="alertTargetFilter" onchange="fetchAlerts(1)" class="rounded-xl px-3 py-2 text-xs bg-surface-elevated border border-surface-border text-txt-body max-w-[180px] truncate cursor-pointer">
+            <option value="ALL">Tất cả bài viết Facebook</option>
+            <!-- Populated dynamically -->
+          </select>
+
+          <!-- Status Filter (Section IX) -->
+          <select id="alertStatusFilter" onchange="fetchAlerts(1)" class="rounded-xl px-3 py-2 text-xs bg-surface-elevated border border-surface-border text-txt-body cursor-pointer">
+            <option value="ALL">Tất cả trạng thái</option>
+            <option value="OPEN">Chờ xử lý (OPEN)</option>
+            <option value="ACKNOWLEDGED">Đã tiếp nhận (ACKNOWLEDGED)</option>
+            <option value="RESOLVED">Đã giải quyết (RESOLVED)</option>
+          </select>
+
+          <!-- Severity Filter -->
+          <select id="alertSeverityFilter" onchange="fetchAlerts(1)" class="rounded-xl px-3 py-2 text-xs bg-surface-elevated border border-surface-border text-txt-body cursor-pointer">
+            <option value="ALL">Tất cả mức độ</option>
+            <option value="CRITICAL">Nghiêm trọng (CRITICAL)</option>
+            <option value="WARNING">Cần chú ý (WARNING)</option>
+            <option value="INFO">Thông tin (INFO)</option>
+          </select>
+
+          <!-- Event Group Filter (Section V) -->
+          <select id="alertGroupFilter" onchange="fetchAlerts(1)" class="rounded-xl px-3 py-2 text-xs bg-surface-elevated border border-surface-border text-txt-body cursor-pointer">
+            <option value="ALL">Tất cả nhóm sự kiện</option>
+            <option value="interaction">Tương tác Facebook (Spikes / Viral)</option>
+            <option value="suspicious">Tương tác bất thường (Suspicious)</option>
+            <option value="monitor">Trạng thái giám sát (State changes)</option>
+            <option value="connection">Quyền & Kết nối (Auth / Checkpoint)</option>
+            <option value="system">Hệ thống (Scheduler / Queue)</option>
+          </select>
+
+          <!-- Reset Filter Button -->
+          <button onclick="resetAlertFilters()" class="p-2 rounded-xl bg-surface-elevated hover:bg-surface text-txt-sub hover:text-txt-title border border-surface-border transition cursor-pointer" title="Đặt lại bộ lọc">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
           </button>
         </div>
       </div>
 
-      <!-- 4 THẺ KPI THÔNG BÁO (Section III.2) -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <!-- KPI 1: TOTAL_NOTIFICATIONS -->
-        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between">
-          <div class="flex items-center justify-between text-txt-sub">
-            <span class="text-xs font-semibold">Tổng thông báo</span>
-            <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
-          </div>
-          <div class="mt-2 text-2xl font-bold text-txt-title" id="alertKpiTotal">0</div>
-          <div class="mt-1 text-[11px] text-txt-sub">Ghi nhận toàn hệ thống</div>
-        </div>
-
-        <!-- KPI 2: UNREAD_NOTIFICATIONS -->
-        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between">
-          <div class="flex items-center justify-between text-txt-sub">
-            <span class="text-xs font-semibold">Thông báo chưa đọc</span>
-            <span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
-          </div>
-          <div class="mt-2 text-2xl font-bold text-rose-400" id="alertKpiUnread">0</div>
-          <div class="mt-1 text-[11px] text-rose-400 font-medium">Cần người dùng xem</div>
-        </div>
-
-        <!-- KPI 3: CRITICAL_ALERTS -->
-        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between">
-          <div class="flex items-center justify-between text-txt-sub">
-            <span class="text-xs font-semibold">Cảnh báo nghiêm trọng</span>
-            <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-          </div>
-          <div class="mt-2 text-2xl font-bold text-amber-400" id="alertKpiCritical">0</div>
-          <div class="mt-1 text-[11px] text-txt-sub">Chưa giải quyết (Critical)</div>
-        </div>
-
-        <!-- KPI 4: OPEN_ALERTS -->
-        <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-col justify-between">
-          <div class="flex items-center justify-between text-txt-sub">
-            <span class="text-xs font-semibold">Cần xử lý (Open)</span>
-            <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-          </div>
-          <div class="mt-2 text-2xl font-bold text-brand-cyan" id="alertKpiOpen">0</div>
-          <div class="mt-1 text-[11px] text-txt-sub font-medium">Đang chờ xác nhận/xử lý</div>
-        </div>
-      </div>
-
-      <!-- BỘ LỌC ĐA TIÊU CHÍ (Section III.1) -->
-      <div class="surface-card rounded-2xl p-4 border border-surface-border flex flex-wrap gap-3 items-center justify-between">
-        <div class="flex flex-wrap items-center gap-2.5 flex-1">
-          <div class="relative min-w-[220px] flex-1">
-            <input type="text" id="alertSearchInput" oninput="debounceFetchAlerts()" placeholder="Tìm nội dung thông báo, loại sự kiện, URL hoặc tác giả..." class="w-full rounded-xl px-3.5 py-2 text-xs placeholder-txt-muted bg-surface-elevated border border-surface-border focus:border-brand-cyan transition text-txt-body">
-          </div>
-          <select id="alertReadFilter" onchange="fetchAlerts(1)" class="rounded-xl px-3 py-2 text-xs bg-surface-elevated border border-surface-border text-txt-body">
-            <option value="">Tất cả (Đã đọc & Chưa đọc)</option>
-            <option value="unread" selected>Chỉ thông báo chưa đọc</option>
-            <option value="read">Đã đọc</option>
-          </select>
-          <select id="alertStatusFilter" onchange="fetchAlerts(1)" class="rounded-xl px-3 py-2 text-xs bg-surface-elevated border border-surface-border text-txt-body">
-            <option value="">Tất cả trạng thái xử lý</option>
-            <option value="OPEN">Cần xử lý (OPEN)</option>
-            <option value="ACKNOWLEDGED">Đã tiếp nhận (ACKNOWLEDGED)</option>
-            <option value="RESOLVED">Đã giải quyết (RESOLVED)</option>
-          </select>
-          <select id="alertSeverityFilter" onchange="fetchAlerts(1)" class="rounded-xl px-3 py-2 text-xs bg-surface-elevated border border-surface-border text-txt-body">
-            <option value="">Tất cả mức độ</option>
-            <option value="CRITICAL">Nghiêm trọng (CRITICAL)</option>
-            <option value="HIGH">Quan trọng (HIGH)</option>
-            <option value="WARNING">Cần chú ý (WARNING)</option>
-            <option value="INFO">Thông tin (INFO)</option>
-          </select>
-          <select id="alertGroupFilter" onchange="fetchAlerts(1)" class="rounded-xl px-3 py-2 text-xs bg-surface-elevated border border-surface-border text-txt-body">
-            <option value="">Tất cả nhóm sự kiện</option>
-            <option value="interaction">Tương tác Facebook (Spikes/Viral)</option>
-            <option value="suspicious">Tương tác nghi vấn (Suspicious)</option>
-            <option value="monitor">Trạng thái giám sát (State changes)</option>
-            <option value="connection">Quyền & Kết nối (Auth/Tokens)</option>
-            <option value="system">Hệ thống (System/Scheduler)</option>
-          </select>
-          <select id="alertTimeframeFilter" onchange="fetchAlerts(1)" class="rounded-xl px-3 py-2 text-xs bg-surface-elevated border border-surface-border text-txt-body">
-            <option value="ALL">Toàn thời gian</option>
-            <option value="1H">1 Giờ qua</option>
-            <option value="24H">24 Giờ qua</option>
-            <option value="7D">7 Ngày qua</option>
-            <option value="30D">30 Ngày qua</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- BẢNG DANH SÁCH THÔNG BÁO & CẢNH BÁO -->
+      <!-- 5. BẢNG LỊCH SỬ CẢNH BÁO CHUYÊN NGHIỆP (Section IV) -->
       <div class="surface-card rounded-2xl overflow-hidden border border-surface-border shadow-sm">
         <div class="overflow-x-auto">
-          <table class="w-full text-left text-xs">
-            <thead class="bg-surface-elevated text-txt-sub font-semibold uppercase tracking-wider border-b border-surface-border">
+          <table class="w-full text-left text-xs" id="alertsTable">
+            <thead class="bg-surface-elevated text-txt-sub font-semibold uppercase tracking-wider border-b border-surface-border text-[11px]">
               <tr>
-                <th class="p-3.5">Mức độ / Nhóm</th>
-                <th class="p-3.5">Tiêu đề & Nội dung biến động</th>
-                <th class="p-3.5">Bài viết liên quan</th>
-                <th class="p-3.5">Thời gian phát hiện</th>
-                <th class="p-3.5 text-center">Trạng thái xử lý</th>
+                <th class="p-3.5">Mã sự kiện</th>
+                <th class="p-3.5">Thời điểm phát hiện</th>
+                <th class="p-3.5">Bài viết Facebook</th>
+                <th class="p-3.5">Loại cảnh báo</th>
+                <th class="p-3.5">Mức độ</th>
+                <th class="p-3.5 text-right">Biến động</th>
+                <th class="p-3.5 text-center">Khung đo</th>
+                <th class="p-3.5 text-center">Trạng thái</th>
                 <th class="p-3.5 text-right">Thao tác</th>
               </tr>
             </thead>
-            <tbody id="alertsTableBody" class="divide-y border-surface-border">
+            <tbody id="alertsTableBody" class="divide-y divide-surface-border font-medium text-txt-body">
               <tr>
-                <td colspan="6" class="p-8 text-center text-txt-sub">Đang tải trung tâm thông báo...</td>
+                <td colspan="9" class="p-8 text-center text-txt-sub">Đang tải nhật ký cảnh báo & audit log...</td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        <!-- Phân trang (Pagination) -->
-        <div class="p-3.5 bg-surface-elevated/40 border-t border-surface-border flex items-center justify-between text-xs text-txt-sub">
-          <div id="alertPaginationInfo">Hiển thị 0 thông báo</div>
+        <!-- Phân trang Server-Side (Pagination) -->
+        <div class="p-3.5 bg-surface-elevated/40 border-t border-surface-border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-txt-sub">
+          <div class="flex items-center gap-3">
+            <div id="alertPaginationInfo">Hiển thị 0 cảnh báo</div>
+            <div class="flex items-center gap-1.5">
+              <span>Mỗi trang:</span>
+              <select id="alertPageLimit" onchange="changeAlertPageLimit(this.value)" class="px-2 py-1 bg-surface rounded-lg border border-surface-border text-txt-body font-mono text-xs cursor-pointer">
+                <option value="10">10</option>
+                <option value="20" selected>20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
+          </div>
           <div class="flex items-center gap-2" id="alertPaginationControls">
             <button id="btnAlertPrevPage" onclick="changeAlertPage(-1)" class="px-3 py-1 bg-surface hover:bg-surface-elevated rounded-lg border border-surface-border text-txt-body font-medium transition disabled:opacity-40 disabled:cursor-not-allowed">Trang trước</button>
-            <span id="alertPageCurrent" class="font-semibold text-txt-title font-mono">1</span>
+            <span id="alertPageCurrent" class="font-semibold text-txt-title font-mono">1 / 1</span>
             <button id="btnAlertNextPage" onclick="changeAlertPage(1)" class="px-3 py-1 bg-surface hover:bg-surface-elevated rounded-lg border border-surface-border text-txt-body font-medium transition disabled:opacity-40 disabled:cursor-not-allowed">Trang sau</button>
           </div>
         </div>
@@ -1609,102 +1708,146 @@
     </div>
   </div>
 
-  <!-- ================= MODAL: ALERT DETAIL & DRAWER (Section VII) ================= -->
+  <!-- ================= MODAL: ALERT DETAIL & EVIDENCE DRAWER (Section VII, VIII & IX) ================= -->
   <div id="alertDetailModal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="surface-card border border-surface-border rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl max-h-[92vh] flex flex-col">
+    <div class="surface-card border border-surface-border rounded-2xl max-w-3xl w-full p-6 space-y-4 shadow-2xl max-h-[94vh] flex flex-col">
       <div class="flex items-start justify-between border-b border-surface-border pb-3">
         <div class="flex items-center gap-3">
           <div id="alertDetailIconBox" class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"></div>
           <div>
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
+              <span id="alertDetailIdBadge" class="text-xs px-2 py-0.5 rounded-lg bg-surface-elevated text-brand-cyan font-mono font-bold border border-surface-border">#ALT-0</span>
               <h3 id="alertDetailTitle" class="text-sm font-bold text-txt-title"></h3>
-              <span id="alertDetailSeverityBadge" class="text-xs px-2 py-0.5 rounded-full font-bold uppercase"></span>
-              <span id="alertDetailStatusBadge" class="text-xs px-2 py-0.5 rounded-full font-bold uppercase"></span>
+              <span id="alertDetailSeverityBadge" class="text-[11px] px-2 py-0.5 rounded-full font-bold uppercase"></span>
+              <span id="alertDetailStatusBadge" class="text-[11px] px-2 py-0.5 rounded-full font-bold uppercase"></span>
             </div>
-            <p id="alertDetailTime" class="text-xs text-txt-sub mt-0.5 font-mono"></p>
+            <p id="alertDetailTime" class="text-xs text-txt-sub mt-1 font-mono"></p>
           </div>
         </div>
-        <button onclick="closeAlertDetailModal()" class="text-txt-sub hover:text-txt-title p-1.5 rounded-lg hover:bg-surface-elevated transition">
+        <button onclick="closeAlertDetailModal()" class="text-txt-sub hover:text-txt-title p-1.5 rounded-lg hover:bg-surface-elevated transition cursor-pointer">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
         </button>
       </div>
 
-      <!-- Detail Body -->
+      <!-- Detail Body with Evidence & Audit Trail -->
       <div class="space-y-4 flex-1 overflow-y-auto pr-1 text-xs">
-        <!-- Related Facebook Target Card -->
+        <!-- 1. Related Facebook Target Card -->
         <div class="bg-surface rounded-xl p-3 border border-surface-border flex items-center justify-between gap-3">
           <div class="flex items-center gap-2.5 min-w-0">
             <img id="alertDetailTargetAvatar" src="" alt="avatar" referrerpolicy="no-referrer" class="w-9 h-9 rounded-lg object-cover bg-gray-800 border border-surface-border shrink-0">
             <div class="min-w-0">
               <div id="alertDetailTargetName" class="font-semibold text-txt-title truncate"></div>
-              <a id="alertDetailTargetUrl" href="#" target="_blank" class="text-[11px] text-brand-cyan hover:underline truncate block"></a>
+              <a id="alertDetailTargetUrl" href="#" target="_blank" rel="noopener noreferrer" class="text-[11px] text-brand-cyan hover:underline truncate block font-mono"></a>
             </div>
           </div>
-          <button id="btnAlertJumpToTarget" onclick="jumpToTargetFromAlert()" class="px-2.5 py-1.5 bg-surface-elevated hover:bg-surface text-brand-cyan rounded-lg font-semibold shrink-0 border border-surface-border flex items-center gap-1.5 transition">
-            <span>Xem bài viết</span>
+          <button id="btnAlertJumpToTarget" onclick="jumpToTargetFromAlert()" class="px-2.5 py-1.5 bg-surface-elevated hover:bg-surface text-brand-cyan rounded-lg font-semibold shrink-0 border border-surface-border flex items-center gap-1.5 transition cursor-pointer">
+            <span>Mở bài viết</span>
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
           </button>
         </div>
 
-        <!-- Metric Fluctuations (Before / After / Delta / Threshold) -->
-        <div class="grid grid-cols-4 gap-2 text-center">
+        <!-- 2. Metric Fluctuations Grid (Section VII) -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
           <div class="bg-surface-elevated/60 p-2.5 rounded-xl border border-surface-border">
-            <span class="text-txt-sub text-[11px]">Mốc trước</span>
-            <div id="alertDetailOldVal" class="text-sm font-bold text-txt-title mt-0.5">0</div>
+            <span class="text-txt-sub text-[10px] uppercase font-semibold">Mốc trước</span>
+            <div id="alertDetailOldVal" class="text-sm font-bold text-txt-title mt-0.5 font-mono">0</div>
           </div>
           <div class="bg-surface-elevated/60 p-2.5 rounded-xl border border-surface-border">
-            <span class="text-txt-sub text-[11px]">Mốc ghi nhận</span>
-            <div id="alertDetailNewVal" class="text-sm font-bold text-txt-title mt-0.5">0</div>
+            <span class="text-txt-sub text-[10px] uppercase font-semibold">Mốc ghi nhận</span>
+            <div id="alertDetailNewVal" class="text-sm font-bold text-txt-title mt-0.5 font-mono">0</div>
           </div>
           <div class="bg-surface-elevated/60 p-2.5 rounded-xl border border-surface-border">
-            <span class="text-txt-sub text-[11px]">Độ biến thiên (Delta)</span>
-            <div id="alertDetailDeltaVal" class="text-sm font-bold text-brand-cyan mt-0.5">+0</div>
+            <span class="text-txt-sub text-[10px] uppercase font-semibold">Biến động (Delta)</span>
+            <div id="alertDetailDeltaVal" class="text-sm font-bold text-brand-cyan mt-0.5 font-mono">+0</div>
           </div>
           <div class="bg-surface-elevated/60 p-2.5 rounded-xl border border-surface-border">
-            <span class="text-txt-sub text-[11px]">Ngưỡng kích hoạt</span>
-            <div id="alertDetailThresholdVal" class="text-sm font-bold text-amber-400 mt-0.5">0</div>
+            <span class="text-txt-sub text-[10px] uppercase font-semibold">Ngưỡng kích hoạt</span>
+            <div id="alertDetailThresholdVal" class="text-sm font-bold text-amber-400 mt-0.5 font-mono">0</div>
           </div>
         </div>
 
-        <!-- Explanation & Analysis Box -->
+        <!-- 3. Explanation & Anomaly Reason Box -->
         <div class="bg-surface rounded-xl p-3.5 border border-surface-border space-y-1.5">
           <span class="font-semibold text-txt-title flex items-center gap-1.5">
             <svg class="w-3.5 h-3.5 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-            <span>Giải thích nguyên nhân & Phân tích bất thường</span>
+            <span>Giải thích nguyên nhân & Phân tích sự kiện</span>
           </span>
           <p id="alertDetailExplanation" class="text-txt-body leading-relaxed"></p>
         </div>
 
-        <!-- 3 Lifecycles Status Row -->
-        <div class="bg-surface rounded-xl p-3 border border-surface-border space-y-2">
-          <span class="font-semibold text-txt-title">Vòng đời thông báo & Xử lý (3 Chiều độc lập)</span>
-          <div class="grid grid-cols-2 gap-2">
-            <div class="p-2 rounded-lg bg-surface-elevated/50 flex items-center justify-between">
-              <span class="text-txt-sub">Vòng đời Đọc:</span>
-              <span id="alertDetailReadLife" class="font-semibold"></span>
+        <!-- 4. Alert Evidence & Verification Box (Section VIII) -->
+        <div class="bg-surface rounded-xl p-3.5 border border-surface-border space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-txt-title flex items-center gap-1.5">
+              <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+              <span>Dữ liệu bằng chứng kiểm chứng (Evidence Verification)</span>
+            </span>
+            <span id="alertDetailEvidenceStatus" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">VERIFIED</span>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 font-mono text-[11px]">
+            <div class="p-2.5 rounded-lg bg-surface-elevated/40 border border-surface-border space-y-1">
+              <div class="text-txt-sub font-semibold font-sans text-xs flex justify-between">
+                <span>Snapshot trước sự kiện:</span>
+                <span id="evidenceBeforeSnapId" class="text-brand-cyan">#0</span>
+              </div>
+              <div class="text-txt-sub text-[10px]" id="evidenceBeforeSnapTime">Thời điểm: N/A</div>
+              <div class="text-txt-title" id="evidenceBeforeSnapTotals">Totals: 0 rx • 0 cmt • 0 sh</div>
             </div>
-            <div class="p-2 rounded-lg bg-surface-elevated/50 flex items-center justify-between">
-              <span class="text-txt-sub">Vòng đời Cảnh báo:</span>
-              <span id="alertDetailResolutionLife" class="font-semibold"></span>
+            <div class="p-2.5 rounded-lg bg-surface-elevated/40 border border-surface-border space-y-1">
+              <div class="text-txt-sub font-semibold font-sans text-xs flex justify-between">
+                <span>Snapshot kích hoạt:</span>
+                <span id="evidenceAfterSnapId" class="text-brand-cyan">#0</span>
+              </div>
+              <div class="text-txt-sub text-[10px]" id="evidenceAfterSnapTime">Thời điểm: N/A</div>
+              <div class="text-txt-title" id="evidenceAfterSnapTotals">Totals: 0 rx • 0 cmt • 0 sh</div>
             </div>
           </div>
+
+          <div class="flex flex-wrap items-center justify-between text-[11px] text-txt-sub pt-1 border-t border-surface-border/50">
+            <span>Nguồn thu thập: <b id="evidenceSourceType" class="text-txt-title font-mono">mbasic/comet</b></span>
+            <span>Phiên bản nhận diện: <b id="evidenceDetectionVer" class="text-txt-title font-mono">NHN Detection Engine v2.1</b></span>
+          </div>
+        </div>
+
+        <!-- 5. Audit Trail & State Transitions History (Section IX) -->
+        <div class="bg-surface rounded-xl p-3.5 border border-surface-border space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-txt-title flex items-center gap-1.5">
+              <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              <span>Nhật ký xử lý & Audit Trail</span>
+            </span>
+            <span class="text-[10px] text-txt-sub font-mono">Bất biến (Immutable)</span>
+          </div>
+          <div id="alertAuditTrailList" class="space-y-2 max-h-48 overflow-y-auto">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+
+        <!-- 6. Operator Action Form & Note Input -->
+        <div class="bg-surface rounded-xl p-3.5 border border-surface-border space-y-2.5">
+          <label class="block font-semibold text-txt-title">Ghi chú xử lý / Biên bản kiểm tra:</label>
+          <textarea id="alertOperatorNoteInput" rows="2" placeholder="Nhập ghi chú kết quả xác minh hoặc thao tác nghiệp vụ..." class="w-full rounded-xl p-2.5 text-xs placeholder-txt-muted bg-surface-elevated border border-surface-border text-txt-body focus:border-brand-cyan"></textarea>
         </div>
       </div>
 
       <!-- Detail Actions Footer -->
       <div class="border-t border-surface-border pt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
-        <div class="flex items-center gap-2">
-          <button id="btnToggleReadSingle" onclick="toggleAlertReadSingle()" class="px-3 py-1.5 bg-surface-elevated hover:bg-surface text-txt-body rounded-lg font-medium border border-surface-border transition">
-            Đánh dấu chưa đọc
+        <div class="flex flex-wrap items-center gap-2">
+          <button id="btnAckSingle" onclick="ackAlertSingle()" class="px-3.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg font-semibold transition cursor-pointer">
+            Tiếp nhận (Acknowledge)
           </button>
-          <button id="btnAckSingle" onclick="ackAlertSingle()" class="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg font-semibold transition">
-            Xác nhận cảnh báo
+          <button id="btnResolveSingle" onclick="resolveAlertSingle()" class="px-3.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg font-semibold transition cursor-pointer">
+            Đánh dấu đã giải quyết (Resolve)
           </button>
-          <button id="btnResolveSingle" onclick="resolveAlertSingle()" class="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg font-semibold transition">
-            Đánh dấu giải quyết
+          <button id="btnReopenSingle" onclick="reopenAlertSingle()" class="px-3.5 py-1.5 bg-brand-blue/30 hover:bg-brand-blue text-brand-cyan hover:text-white border border-brand-cyan/30 rounded-lg font-semibold transition cursor-pointer">
+            Mở lại (Reopen)
+          </button>
+          <button onclick="addAlertNoteSingle()" class="px-3 py-1.5 bg-surface-elevated hover:bg-surface text-txt-body border border-surface-border rounded-lg font-medium transition cursor-pointer">
+            Thêm ghi chú
           </button>
         </div>
-        <button onclick="closeAlertDetailModal()" class="px-4 py-1.5 bg-surface-elevated hover:bg-surface text-txt-body rounded-lg font-medium border border-surface-border transition">
+        <button onclick="closeAlertDetailModal()" class="px-4 py-1.5 bg-surface-elevated hover:bg-surface text-txt-body rounded-lg font-medium border border-surface-border transition cursor-pointer">
           Đóng
         </button>
       </div>
