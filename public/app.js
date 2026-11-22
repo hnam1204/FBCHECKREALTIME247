@@ -6,6 +6,9 @@ let comparisonChartInstance = null;
 let currentDetailTargetId = null;
 let ws = null;
 let searchTimeout = null;
+let cachedTargets = [];
+let cycleCountdownSeconds = 20;
+let cycleTimer = null;
 
 // --- Commercial Modal & Dialog Engine ---
 let confirmCallback = null;
@@ -78,14 +81,10 @@ window.alert = (msg) => {
 document.addEventListener('DOMContentLoaded', () => {
   updateThemeIcons();
   initWebSocket();
+  initCycleCountdown();
   fetchOverview();
   fetchTargets();
   fetchAlerts();
-
-  // Polling fallback every 15s in case websocket drops
-  setInterval(() => {
-    if (currentTab === 'overview') fetchOverview();
-  }, 15000);
 });
 
 // --- Theme Switcher (Dark / Light Mode) ---
@@ -361,16 +360,101 @@ function renderOverviewChart(fastestItems) {
   });
 }
 
-// --- 2. Targets List API ---
+// --- 2. Targets List & Countdown Engine ---
+function initCycleCountdown() {
+  if (cycleTimer) clearInterval(cycleTimer);
+  cycleTimer = setInterval(() => {
+    cycleCountdownSeconds--;
+    const globalEl = document.getElementById('globalCountdownText');
+    if (globalEl) {
+      globalEl.textContent = `${cycleCountdownSeconds}s`;
+    }
+    updateRowCountdowns();
+
+    if (cycleCountdownSeconds <= 0) {
+      cycleCountdownSeconds = 20;
+      if (globalEl) globalEl.textContent = '20s';
+      if (currentTab === 'targets') fetchTargets();
+      if (currentTab === 'overview') fetchOverview();
+    }
+  }, 1000);
+}
+
+function updateRowCountdowns() {
+  if (!cachedTargets || cachedTargets.length === 0) return;
+  const now = Date.now();
+  for (const t of cachedTargets) {
+    const el = document.getElementById(`target-countdown-${t.id}`);
+    if (!el) continue;
+    if (t.status !== 'ACTIVE') {
+      el.textContent = 'Tạm dừng';
+      el.className = 'text-[10px] text-txt-muted';
+      continue;
+    }
+    const lastTime = t.last_checked_at ? new Date(t.last_checked_at).getTime() : 0;
+    const intervalMs = (t.check_interval_sec || 60) * 1000;
+    const diff = lastTime + intervalMs - now;
+    const remainingSec = Math.max(0, Math.ceil(diff / 1000));
+    if (remainingSec === 0) {
+      el.innerHTML = '<span class="text-emerald-400 font-semibold animate-pulse">⚡ Đến lượt</span>';
+    } else {
+      el.textContent = `⏳ còn ${remainingSec}s`;
+      el.className = 'text-[10px] text-brand-cyan font-mono';
+    }
+  }
+}
+
+async function triggerCycleTick() {
+  cycleCountdownSeconds = 20;
+  const globalEl = document.getElementById('globalCountdownText');
+  if (globalEl) globalEl.textContent = '20s';
+  await refreshTargetsTable(true);
+}
+
+async function refreshTargetsTable(forceSync = false) {
+  const btn = document.getElementById('btnRefreshTargets');
+  const icon = document.getElementById('refreshTargetsIcon');
+  const text = document.getElementById('refreshTargetsText');
+
+  if (icon) icon.classList.add('animate-spin');
+  if (text) text.textContent = 'Đang đồng bộ...';
+  if (btn) btn.disabled = true;
+
+  try {
+    if (forceSync) {
+      await fetch('/api/targets/sync-all', { method: 'POST' }).catch(() => {});
+    }
+    await fetchTargets();
+    if (currentTab === 'overview') await fetchOverview();
+    if (text) text.textContent = '✓ Đã cập nhật';
+  } catch (err) {
+    console.error('Lỗi làm mới:', err);
+    if (text) text.textContent = 'Lỗi làm mới';
+  } finally {
+    cycleCountdownSeconds = 20;
+    const globalEl = document.getElementById('globalCountdownText');
+    if (globalEl) globalEl.textContent = '20s';
+    setTimeout(() => {
+      if (icon) icon.classList.remove('animate-spin');
+      if (text) text.textContent = 'Làm mới bảng';
+      if (btn) btn.disabled = false;
+    }, 1200);
+  }
+}
+
 function debounceFetchTargets() {
   clearTimeout(searchTimeout);
   searchTimeout = setTimeout(fetchTargets, 300);
 }
 
 async function fetchTargets() {
-  const search = document.getElementById('targetSearchInput').value;
-  const type = document.getElementById('targetTypeFilter').value;
-  const status = document.getElementById('targetStatusFilter').value;
+  const searchInput = document.getElementById('targetSearchInput');
+  const typeFilter = document.getElementById('targetTypeFilter');
+  const statusFilter = document.getElementById('targetStatusFilter');
+
+  const search = searchInput ? searchInput.value : '';
+  const type = typeFilter ? typeFilter.value : '';
+  const status = statusFilter ? statusFilter.value : '';
 
   const params = new URLSearchParams();
   if (search) params.append('search', search);
@@ -380,17 +464,21 @@ async function fetchTargets() {
   try {
     const res = await fetch(`/api/targets?${params.toString()}`);
     const data = await res.json();
-    renderTargetsTable(data.targets || []);
-    document.getElementById('tabTargetsCount').textContent = (data.targets || []).length;
+    cachedTargets = data.targets || [];
+    renderTargetsTable(cachedTargets);
+    const countEl = document.getElementById('tabTargetsCount');
+    if (countEl) countEl.textContent = cachedTargets.length;
   } catch (err) {
     console.error('Lỗi tải targets:', err);
   }
 }
 
 function renderTargetsTable(targets) {
+  cachedTargets = targets || [];
   const tbody = document.getElementById('targetsTableBody');
+  if (!tbody) return;
   if (targets.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="9" class="p-8 text-center text-gray-500">Chưa có liên kết Facebook nào được giám sát. Nhấn "Thêm URL giám sát" ở trên.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="p-8 text-center text-txt-sub">Chưa có liên kết Facebook nào được giám sát. Nhấn "Thêm liên kết giám sát" ở trên.</td></tr>`;
     return;
   }
 
@@ -402,39 +490,44 @@ function renderTargetsTable(targets) {
     else if (t.status === 'INACCESSIBLE') { statusClass = 'status-inaccessible'; statusText = 'Lỗi truy cập'; }
 
     return `
-      <tr class="hover:bg-dark-hover transition">
+      <tr class="hover:bg-surface-elevated/50 transition">
         <td class="p-3.5">
           <div class="flex items-center gap-2.5">
             <img src="${t.author_avatar || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=80&h=80&fit=crop'}" class="w-8 h-8 rounded-lg object-cover bg-gray-800">
             <div class="max-w-[240px]">
-              <div class="font-medium text-white truncate">${t.author_name || 'Facebook Item'}</div>
-              <a href="${t.normalized_url}" target="_blank" class="text-[11px] text-gray-400 hover:text-brand-400 truncate block">${t.normalized_url}</a>
+              <div class="font-medium text-txt-title truncate">${t.author_name || 'Facebook Item'}</div>
+              <a href="${t.normalized_url}" target="_blank" class="text-[11px] text-txt-sub hover:text-brand-cyan truncate block">${t.normalized_url}</a>
             </div>
           </div>
         </td>
         <td class="p-3.5">
-          <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-gray-800 text-gray-300 border border-dark-border">
+          <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-surface-elevated text-txt-sub border border-surface-border">
             ${t.target_type}
           </span>
         </td>
-        <td class="p-3.5 text-right font-semibold text-brand-cyan">${t.latest_reactions.toLocaleString()}</td>
-        <td class="p-3.5 text-right font-semibold text-txt-title">${t.latest_comments.toLocaleString()}</td>
-        <td class="p-3.5 text-right font-semibold text-brand-cyan">${t.latest_shares.toLocaleString()}</td>
-        <td class="p-3.5 text-center text-brand-cyan font-semibold">+${t.latest_reactions - t.baseline_reactions}</td>
-        <td class="p-3.5 text-center text-txt-sub">${t.check_interval_sec}s</td>
+        <td class="p-3.5 text-right font-semibold text-brand-cyan">${(t.latest_reactions || 0).toLocaleString()}</td>
+        <td class="p-3.5 text-right font-semibold text-txt-title">${(t.latest_comments || 0).toLocaleString()}</td>
+        <td class="p-3.5 text-right font-semibold text-brand-cyan">${(t.latest_shares || 0).toLocaleString()}</td>
+        <td class="p-3.5 text-center text-brand-cyan font-semibold">+${(t.latest_reactions || 0) - (t.baseline_reactions || 0)}</td>
+        <td class="p-3.5 text-center">
+          <div class="inline-flex flex-col items-center">
+            <span class="font-medium text-txt-title">${t.check_interval_sec}s</span>
+            <span id="target-countdown-${t.id}" class="text-[10px] text-brand-cyan font-mono">⏳ ...</span>
+          </div>
+        </td>
         <td class="p-3.5 text-center">
           <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold ${statusClass}">${statusText}</span>
         </td>
         <td class="p-3.5 text-right">
           <div class="flex items-center justify-end gap-2">
-            <button onclick="openDetailModal(${t.id})" class="px-2.5 py-1 bg-white/[0.07] hover:bg-brand-blue/30 text-brand-cyan rounded text-xs transition border border-white/[0.07]">Chi tiết</button>
-            <button onclick="syncTargetNow(${t.id})" title="Đồng bộ ngay" class="p-1.5 bg-white/[0.07] hover:bg-brand-blue/30 text-brand-cyan rounded text-xs transition border border-white/[0.07]">
+            <button onclick="openDetailModal(${t.id})" class="px-2.5 py-1 bg-surface-elevated hover:bg-brand-blue/30 text-brand-cyan rounded text-xs transition border border-surface-border">Chi tiết</button>
+            <button id="btn-sync-${t.id}" onclick="syncTargetNow(${t.id})" title="Đồng bộ ngay" class="p-1.5 bg-surface-elevated hover:bg-brand-blue/30 text-brand-cyan rounded text-xs transition border border-surface-border active:scale-95 cursor-pointer">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
             </button>
-            <button onclick="togglePause(${t.id}, '${t.status}')" title="${t.status === 'PAUSED' ? 'Tiếp tục' : 'Tạm dừng'}" class="p-1.5 bg-white/[0.07] hover:bg-white/[0.12] text-txt-body rounded text-xs transition border border-white/[0.07]">
+            <button onclick="togglePause(${t.id}, '${t.status}')" title="${t.status === 'PAUSED' ? 'Tiếp tục' : 'Tạm dừng'}" class="p-1.5 bg-surface-elevated hover:bg-surface text-txt-body rounded text-xs transition border border-surface-border active:scale-95 cursor-pointer">
               ${t.status === 'PAUSED' ? '<svg class="w-3.5 h-3.5 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path></svg>' : '<svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6"></path></svg>'}
             </button>
-            <button onclick="deleteTarget(${t.id})" title="Xóa" class="p-1.5 bg-white/[0.07] hover:bg-rose-500/20 text-rose-400 rounded text-xs transition border border-white/[0.07]">
+            <button onclick="deleteTarget(${t.id})" title="Xóa" class="p-1.5 bg-surface-elevated hover:bg-rose-500/20 text-rose-400 rounded text-xs transition border border-surface-border active:scale-95 cursor-pointer">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
             </button>
           </div>
@@ -442,15 +535,28 @@ function renderTargetsTable(targets) {
       </tr>
     `;
   }).join('');
+
+  updateRowCountdowns();
 }
 
 // --- Target Quick Actions ---
 async function syncTargetNow(id) {
+  const btn = document.getElementById(`btn-sync-${id}`);
+  const icon = btn ? btn.querySelector('svg') : null;
+  if (icon) icon.classList.add('animate-spin');
+  if (btn) btn.disabled = true;
+
   try {
-    await fetch(`/api/targets/${id}/sync-now`, { method: 'POST' });
-    fetchTargets();
+    const res = await fetch(`/api/targets/${id}/sync-now`, { method: 'POST' });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    await fetchTargets();
+    if (currentTab === 'overview') await fetchOverview();
   } catch (e) {
-    alert('Lỗi kích hoạt đồng bộ: ' + e.message);
+    showNoticeModal({ title: 'Lỗi đồng bộ', message: e.message, type: 'error' });
+  } finally {
+    if (icon) icon.classList.remove('animate-spin');
+    if (btn) btn.disabled = false;
   }
 }
 

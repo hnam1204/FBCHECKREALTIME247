@@ -250,10 +250,19 @@
             <option value="INACCESSIBLE">Lỗi truy cập</option>
           </select>
         </div>
-        <button onclick="fetchTargets()" class="px-3.5 py-2 bg-surface-elevated hover:bg-surface text-xs text-txt-body rounded-lg border border-surface-border flex items-center gap-2">
-          <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-          <span>Làm mới bảng</span>
-        </button>
+        <div class="flex items-center gap-2.5">
+          <!-- Countdown Cycle Button -->
+          <button id="btnCycleCountdown" onclick="triggerCycleTick()" title="Chu kỳ đếm ngược tự động đồng bộ (Nhấn để đồng bộ ngay)" class="px-3.5 py-2 bg-surface-elevated hover:bg-surface text-xs text-txt-body rounded-lg border border-surface-border flex items-center gap-2 transition active:scale-95 shadow-sm cursor-pointer">
+            <svg class="w-4 h-4 text-brand-cyan animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            <span>Đếm ngược: <strong id="globalCountdownText" class="text-brand-cyan font-mono font-bold">20s</strong></span>
+          </button>
+
+          <!-- Refresh Table Button -->
+          <button id="btnRefreshTargets" onclick="refreshTargetsTable(true)" class="px-3.5 py-2 bg-surface-elevated hover:bg-surface text-xs text-txt-body rounded-lg border border-surface-border flex items-center gap-2 transition active:scale-95 shadow-sm cursor-pointer">
+            <svg id="refreshTargetsIcon" class="w-4 h-4 text-brand-cyan transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+            <span id="refreshTargetsText">Làm mới bảng</span>
+          </button>
+        </div>
       </div>
 
       <!-- Targets Table -->

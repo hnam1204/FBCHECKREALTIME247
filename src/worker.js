@@ -260,6 +260,21 @@ async function handleApiRoute(pathname, method, request, env, url) {
     return jsonResponse({ success: true });
   }
 
+  // POST /api/targets/sync-all (Đồng bộ toàn bộ link đang hoạt động)
+  if (pathname === '/api/targets/sync-all' && method === 'POST') {
+    const targets = (await db.prepare("SELECT * FROM monitored_targets WHERE status != 'PAUSED' LIMIT 15").all())?.results || [];
+    const results = [];
+    for (const target of targets) {
+      try {
+        await syncSingleTarget(target, env);
+        results.push({ id: target.id, success: true });
+      } catch (err) {
+        results.push({ id: target.id, success: false, error: err.message });
+      }
+    }
+    return jsonResponse({ success: true, count: targets.length, results });
+  }
+
   // GET /api/comparison (So sánh tương tác đa nội dung)
   if (pathname === '/api/comparison' && method === 'GET') {
     const idsParam = url.searchParams.get('ids') || '';
@@ -358,6 +373,9 @@ async function handleApiRoute(pathname, method, request, env, url) {
       VALUES (?, 'cookie', ?, ?, 'mbasic', 'ACTIVE', ?)
       ON CONFLICT(fb_account_id) DO UPDATE SET encrypted_token = excluded.encrypted_token, name = excluded.name, status = 'ACTIVE', error_log = NULL
     `).bind(accountName, fbAccountId, encCookie, now).run();
+
+    // Tự động kích hoạt lại các link bị tạm ngưng do thiếu auth
+    await db.prepare("UPDATE monitored_targets SET status = 'ACTIVE' WHERE status IN ('NEEDS_AUTH', 'DATA_LIMITED')").run();
 
     return jsonResponse({
       success: true,
@@ -474,7 +492,7 @@ async function runScheduledMonitoringTick(env) {
   // Find due targets (priority queue)
   const dueTargets = (await db.prepare(`
     SELECT * FROM monitored_targets
-    WHERE status = 'ACTIVE'
+    WHERE status != 'PAUSED'
       AND (
         last_checked_at IS NULL
         OR (strftime('%s', ?) - strftime('%s', last_checked_at)) >= check_interval_sec
