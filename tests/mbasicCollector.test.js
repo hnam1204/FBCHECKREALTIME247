@@ -34,7 +34,7 @@ test('mbasicCollector: parseMbasicHtml extracts reactions, comments, shares and 
       <body>
         <div id="root">
           <h3 class="actor">Hainam Tech</h3>
-          <div data-ft='{"tn":"*s"}'>Chào mừng bạn đến với Cloudflare Edge Monitoring.</div>
+          <div data-ft='{"tn":"*s"}'>Chào mừng bạn đến với Meta Interaction Monitoring.</div>
           <a href="/ufi/reaction/profile/browser/?ft_ent_identifier=123456789">Bạn và 99 người khác</a>
           <a href="/mbasic/comment/advanced/?ft_ent_identifier=123456789">42 bình luận</a>
           <a href="/shares/view/?ft_ent_identifier=123456789">15 lượt chia sẻ</a>

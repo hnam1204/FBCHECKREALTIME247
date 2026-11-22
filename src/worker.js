@@ -475,7 +475,7 @@ async function handleApiRoute(pathname, method, request, env, url) {
   if (pathname === '/api/health' && method === 'GET') {
     return jsonResponse({
       status: 'HEALTHY',
-      platform: 'Cloudflare Workers (Edge Serverless)',
+      platform: 'Serverless Edge 24/7',
       engine: 'Hybrid (Meta Graph API + mbasic Scraper)',
       timestamp: new Date().toISOString()
     });

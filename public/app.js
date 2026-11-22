@@ -176,12 +176,12 @@ function initWebSocket() {
   const wsDot = document.getElementById('wsDot');
   const wsText = document.getElementById('wsText');
 
-  // If deployed on Cloudflare Workers / Serverless Edge, switch immediately to Edge Sync mode
+  // If deployed on Serverless Edge, switch immediately to Edge Sync mode
   const isServerless = window.location.hostname.includes('workers.dev') || window.location.hostname.includes('pages.dev');
   if (isServerless) {
     if (wsDot && wsText) {
       wsDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
-      wsText.textContent = 'Cloudflare Edge 24/7 (Đồng bộ tự động)';
+      wsText.textContent = 'Hệ thống 24/7 (Đồng bộ tự động)';
     }
     startAutoPolling();
     return;
@@ -216,7 +216,7 @@ function initWebSocket() {
         // Fall back gracefully to Edge Sync without showing red warning
         if (wsDot && wsText) {
           wsDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
-          wsText.textContent = 'Cloudflare Edge 24/7 (Đồng bộ tự động)';
+          wsText.textContent = 'Hệ thống 24/7 (Đồng bộ tự động)';
         }
         startAutoPolling();
         return;
@@ -230,7 +230,7 @@ function initWebSocket() {
   } catch (err) {
     if (wsDot && wsText) {
       wsDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
-      wsText.textContent = 'Cloudflare Edge 24/7 (Đồng bộ tự động)';
+      wsText.textContent = 'Hệ thống 24/7 (Đồng bộ tự động)';
     }
     startAutoPolling();
   }
