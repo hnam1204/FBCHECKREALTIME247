@@ -70,6 +70,16 @@ async function runSidecarTick() {
 
         const parsed = parseMbasicHtml(html);
 
+        if (
+          parsed.authorName === 'Lỗi' ||
+          html.includes('Trình duyệt này không hỗ trợ Facebook') ||
+          html.includes('Sorry, something went wrong') ||
+          (parsed.totalReactions === 0 && parsed.totalComments === 0 && !parsed.authorName)
+        ) {
+          console.warn(`[c4] SIDECAR: Facebook trả về trang lỗi/chặn cho #${target.id}. Bỏ qua để bảo vệ dữ liệu hiện tại.`);
+          continue;
+        }
+
         let breakdown = parsed.reactions || { like: parsed.totalReactions, love: 0, care: 0, haha: 0, wow: 0, sad: 0, angry: 0 };
         let reactors = parsed.reactors || [];
 

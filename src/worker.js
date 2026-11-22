@@ -566,25 +566,38 @@ async function handleApiRoute(pathname, method, request, env, url) {
       WHERE id = ?
     `).bind(total_reactions, total_comments, total_shares, author_name, content_snippet, now, target_id).run();
 
-    // Insert interacted accounts
+    // Insert interacted accounts with deduplication
     if (Array.isArray(interacted_accounts) && interacted_accounts.length > 0) {
       for (const item of interacted_accounts.slice(0, 30)) {
-        await db.prepare(`
-          INSERT INTO accounts_interacted (
-            target_id, fb_user_id, display_name, profile_url, avatar_url,
-            interaction_type, reaction_type, comment_text, observed_at, data_completeness
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'FULL')
-        `).bind(
-          target_id,
-          item.fb_user_id || item.fbUserId || null,
-          item.display_name || item.displayName || 'Người dùng Facebook',
-          item.profile_url || item.profileUrl || null,
-          item.avatar_url || item.avatarUrl || null,
-          item.interaction_type || item.interactionType || 'COMMENT',
-          item.reaction_type || item.reactionType || null,
-          item.comment_text || item.commentText || null,
-          now
-        ).run();
+        const dName = item.display_name || item.displayName || 'Người dùng Facebook';
+        const iType = item.interaction_type || item.interactionType || 'COMMENT';
+        const cText = item.comment_text || item.commentText || null;
+
+        const existing = await db.prepare(`
+          SELECT id FROM accounts_interacted 
+          WHERE target_id = ? AND display_name = ? AND interaction_type = ? 
+            AND (comment_text = ? OR (comment_text IS NULL AND ? IS NULL))
+          LIMIT 1
+        `).bind(target_id, dName, iType, cText, cText).first();
+
+        if (!existing) {
+          await db.prepare(`
+            INSERT INTO accounts_interacted (
+              target_id, fb_user_id, display_name, profile_url, avatar_url,
+              interaction_type, reaction_type, comment_text, observed_at, data_completeness
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'FULL')
+          `).bind(
+            target_id,
+            item.fb_user_id || item.fbUserId || null,
+            dName,
+            item.profile_url || item.profileUrl || null,
+            item.avatar_url || item.avatarUrl || null,
+            iType,
+            item.reaction_type || item.reactionType || null,
+            cText,
+            now
+          ).run();
+        }
       }
     }
 
@@ -831,6 +844,16 @@ async function syncViaMbasic(target, env, masterKey) {
 
   const parsed = parseMbasicHtml(html);
 
+  if (
+    parsed.authorName === 'Lỗi' ||
+    html.includes('Trình duyệt này không hỗ trợ Facebook') ||
+    html.includes('Sorry, something went wrong')
+  ) {
+    await db.prepare('UPDATE monitored_targets SET last_checked_at = ?, last_error = ? WHERE id = ?')
+      .bind(now, 'Facebook yêu cầu phiên IP dân cư (Sidecar)', target.id).run();
+    return;
+  }
+
   // Use parsed reactions breakdown (or fetch ufi if legacy mbasic)
   let breakdown = parsed.reactions || { like: parsed.totalReactions, love: 0, care: 0, haha: 0, wow: 0, sad: 0, angry: 0 };
   let reactors = parsed.reactors || [];
@@ -850,25 +873,38 @@ async function syncViaMbasic(target, env, masterKey) {
     }
   }
 
-  // Insert Identifiable Comments & Reactors into accounts_interacted
+  // Insert Identifiable Comments & Reactors into accounts_interacted with deduplication
   const interactions = [...(parsed.comments || []), ...reactors];
   for (const item of interactions.slice(0, 30)) {
-    await db.prepare(`
-      INSERT INTO accounts_interacted (
-        target_id, fb_user_id, display_name, profile_url, avatar_url,
-        interaction_type, reaction_type, comment_text, observed_at, data_completeness
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'FULL')
-    `).bind(
-      target.id,
-      item.fbUserId || null,
-      item.displayName || 'Người dùng Facebook',
-      item.profileUrl || null,
-      item.avatarUrl || null,
-      item.interactionType || 'COMMENT',
-      item.reactionType || null,
-      item.commentText || null,
-      now
-    ).run();
+    const dName = item.displayName || 'Người dùng Facebook';
+    const iType = item.interactionType || 'COMMENT';
+    const cText = item.commentText || null;
+
+    const existing = await db.prepare(`
+      SELECT id FROM accounts_interacted 
+      WHERE target_id = ? AND display_name = ? AND interaction_type = ? 
+        AND (comment_text = ? OR (comment_text IS NULL AND ? IS NULL))
+      LIMIT 1
+    `).bind(target.id, dName, iType, cText, cText).first();
+
+    if (!existing) {
+      await db.prepare(`
+        INSERT INTO accounts_interacted (
+          target_id, fb_user_id, display_name, profile_url, avatar_url,
+          interaction_type, reaction_type, comment_text, observed_at, data_completeness
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'FULL')
+      `).bind(
+        target.id,
+        item.fbUserId || null,
+        dName,
+        item.profileUrl || null,
+        item.avatarUrl || null,
+        iType,
+        item.reactionType || null,
+        cText,
+        now
+      ).run();
+    }
   }
 
   // Get previous snapshot
