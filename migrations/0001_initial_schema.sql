@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS monitored_targets (
   content_id TEXT,
   author_name TEXT,
   author_avatar TEXT,
+  post_image TEXT,
   content_snippet TEXT,
   post_created_time TEXT,
   status TEXT NOT NULL DEFAULT 'ACTIVE',

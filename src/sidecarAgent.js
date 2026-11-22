@@ -61,12 +61,17 @@ async function runSidecarTick() {
 
         let fetchUrl = target.normalized_url;
         if (!fetchUrl.startsWith('http')) {
-          fetchUrl = `https://www.facebook.com/${target.content_id}`;
+          fetchUrl = `https://mbasic.facebook.com/${target.content_id}`;
+        } else {
+          fetchUrl = fetchUrl
+            .replace('www.facebook.com', 'mbasic.facebook.com')
+            .replace('m.facebook.com', 'mbasic.facebook.com')
+            .replace('web.facebook.com', 'mbasic.facebook.com');
         }
 
         const headers = {
           'Cookie': cookie,
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
           'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
           'Sec-Fetch-Dest': 'document',
@@ -122,6 +127,8 @@ async function runSidecarTick() {
             total_comments: parsed.totalComments,
             total_shares: parsed.totalShares,
             author_name: parsed.authorName,
+            author_avatar: parsed.authorAvatar || parsed.postImage,
+            post_image: parsed.postImage,
             content_snippet: parsed.contentSnippet,
             interacted_accounts: interactedAccounts
           })

@@ -64,6 +64,8 @@ export function parseCount(str) {
  *   totalComments: number,
  *   totalShares: number,
  *   authorName: string|null,
+ *   authorAvatar: string|null,
+ *   postImage: string|null,
  *   contentSnippet: string|null,
  *   reactionsBrowserUrl: string|null
  * }}
@@ -76,6 +78,8 @@ export function parseMbasicHtml(html) {
       totalComments: 0,
       totalShares: 0,
       authorName: null,
+      authorAvatar: null,
+      postImage: null,
       contentSnippet: null,
       reactionsBrowserUrl: null
     };
@@ -86,6 +90,8 @@ export function parseMbasicHtml(html) {
   let totalShares = 0;
   let reactions = { like: 0, love: 0, care: 0, haha: 0, wow: 0, sad: 0, angry: 0 };
   let authorName = null;
+  let authorAvatar = null;
+  let postImage = null;
   let contentSnippet = null;
   let reactionsBrowserUrl = null;
 
@@ -96,6 +102,42 @@ export function parseMbasicHtml(html) {
     if (t && !t.includes('Facebook') && !t.includes('Error') && !t.includes('Đăng nhập') && !t.includes('Log in')) {
       authorName = t;
     }
+  }
+
+  // --- Extract Media & Avatars (og:image & Facebook CDN) ---
+  const ogMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
+    || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+  if (ogMatch) {
+    const clean = ogMatch[1].replace(/&amp;/g, '&').replace(/\\/g, '');
+    if (!clean.includes('static.xx.fbcdn.net/rsrc.php')) {
+      postImage = clean;
+    }
+  }
+  if (!postImage) {
+    const cometMediaMatch = html.match(/"preferred_thumbnail"\s*:\s*\{\s*"image"\s*:\s*\{\s*"uri"\s*:\s*"([^"]+)"/i)
+      || html.match(/"image"\s*:\s*\{\s*"uri"\s*:\s*"([^"]+)"/i);
+    if (cometMediaMatch) {
+      const clean = cometMediaMatch[1].replace(/&amp;/g, '&').replace(/\\/g, '');
+      if (clean.startsWith('http') && !clean.includes('static.xx.fbcdn.net/rsrc.php')) {
+        postImage = clean;
+      }
+    }
+  }
+
+  const profMatch = html.match(/https:\/\/scontent[^"'\s\\]*(?:t1\.30497-1|t39\.30808-1)[^"'\s\\]*/i);
+  if (profMatch) {
+    authorAvatar = profMatch[0].replace(/&amp;/g, '&').replace(/\\/g, '');
+  }
+  if (!authorAvatar) {
+    const cometProfPic = html.match(/"profile_picture"\s*:\s*\{\s*"uri"\s*:\s*"([^"]+)"/i)
+      || html.match(/"profile_photo"\s*:\s*\{\s*"url"\s*:\s*"([^"]+)"/i)
+      || html.match(/"profile_picture_uri"\s*:\s*"([^"]+)"/i);
+    if (cometProfPic) {
+      authorAvatar = cometProfPic[1].replace(/&amp;/g, '&').replace(/\\/g, '');
+    }
+  }
+  if (!authorAvatar && postImage) {
+    authorAvatar = postImage;
   }
 
   // --- ENGINE 1: Embedded Comet JSON Blobs (High-Precision React Store) ---
@@ -147,6 +189,8 @@ export function parseMbasicHtml(html) {
       totalComments,
       totalShares,
       authorName,
+      authorAvatar,
+      postImage,
       contentSnippet,
       reactionsBrowserUrl: null,
       comments: parseComments(html),
@@ -211,6 +255,8 @@ export function parseMbasicHtml(html) {
     totalComments,
     totalShares,
     authorName,
+    authorAvatar,
+    postImage,
     contentSnippet,
     reactionsBrowserUrl,
     comments: parseComments(html),
@@ -228,18 +274,20 @@ export function parseComments(html) {
   if (!html || typeof html !== 'string') return comments;
 
   // 1. Comet React Store Comments: match "body":{"text":"..."} blocks
-  const cometRegex = /"body"\s*:\s*\{\s*"text"\s*:\s*"([^"]+)"\}[\s\S]{1,400}?"author"\s*:\s*\{[^}]*?"name"\s*:\s*"([^"]+)"(?:[^}]*?"id"\s*:\s*"([^"]+)")?/gi;
+  const cometRegex = /"body"\s*:\s*\{\s*"text"\s*:\s*"([^"]+)"\}[\s\S]{1,400}?"author"\s*:\s*\{[^}]*?"name"\s*:\s*"([^"]+)"(?:[^}]*?"id"\s*:\s*"([^"]+)")?(?:[\s\S]{0,200}?"profile_picture"\s*:\s*\{\s*"uri"\s*:\s*"([^"]+)"\})?/gi;
   for (const m of html.matchAll(cometRegex)) {
     try {
       const text = JSON.parse(`"${m[1]}"`);
       const name = JSON.parse(`"${m[2]}"`);
       const id = m[3] || null;
+      let pic = m[4] ? m[4].replace(/\\/g, '') : null;
+      if (!pic && id) pic = `https://graph.facebook.com/${id}/picture?type=normal`;
       if (name && text) {
         comments.push({
           displayName: name,
           fbUserId: id,
           profileUrl: id ? `https://www.facebook.com/${id}` : null,
-          avatarUrl: null,
+          avatarUrl: pic,
           commentText: text,
           interactionType: 'COMMENT'
         });
@@ -250,18 +298,20 @@ export function parseComments(html) {
 
   // Check reverse Comet ordering
   if (comments.length === 0) {
-    const revRegex = /"author"\s*:\s*\{[^}]*?"name"\s*:\s*"([^"]+)"(?:[^}]*?"id"\s*:\s*"([^"]+)")?[^}]*\}[\s\S]{1,400}?"body"\s*:\s*\{\s*"text"\s*:\s*"([^"]+)"\}/gi;
+    const revRegex = /"author"\s*:\s*\{[^}]*?"name"\s*:\s*"([^"]+)"(?:[^}]*?"id"\s*:\s*"([^"]+)")?[^}]*(?:"profile_picture"\s*:\s*\{\s*"uri"\s*:\s*"([^"]+)"\})?[^}]*\}[\s\S]{1,400}?"body"\s*:\s*\{\s*"text"\s*:\s*"([^"]+)"\}/gi;
     for (const m of html.matchAll(revRegex)) {
       try {
         const name = JSON.parse(`"${m[1]}"`);
         const id = m[2] || null;
-        const text = JSON.parse(`"${m[3]}"`);
+        let pic = m[3] ? m[3].replace(/\\/g, '') : null;
+        if (!pic && id) pic = `https://graph.facebook.com/${id}/picture?type=normal`;
+        const text = JSON.parse(`"${m[4]}"`);
         if (name && text) {
           comments.push({
             displayName: name,
             fbUserId: id,
             profileUrl: id ? `https://www.facebook.com/${id}` : null,
-            avatarUrl: null,
+            avatarUrl: pic,
             commentText: text,
             interactionType: 'COMMENT'
           });
@@ -271,7 +321,28 @@ export function parseComments(html) {
     }
   }
 
-  // 2. Classic mbasic HTML Comments
+  // 2. Mobile web / Bloks comments with aria-label & avatar
+  if (comments.length === 0) {
+    const bloksRegex = /aria-label=["']Ảnh đại diện của ([^"']+)["'][\s\S]{0,600}?<img[^>]+src=["'](https:\/\/scontent[^"'\s\\]*(?:t39\.30808-1|t1\.30497-1)[^"'\s\\]*)["'][\s\S]{0,1400}?<span[^>]*role=["']link["'][^>]*>([\s\S]*?)<\/span>[\s\S]{0,800}?<div dir=["']auto["'][^>]*>([\s\S]*?)<\/div>/gi;
+    for (const m of html.matchAll(bloksRegex)) {
+      const dName = m[1].trim();
+      const pic = m[2].replace(/&amp;/g, '&');
+      const text = m[4].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      if (dName && text && !text.includes('Công khai') && !text.includes('bình luận')) {
+        comments.push({
+          displayName: dName,
+          fbUserId: null,
+          profileUrl: null,
+          avatarUrl: pic,
+          commentText: text,
+          interactionType: 'COMMENT'
+        });
+      }
+      if (comments.length >= 20) break;
+    }
+  }
+
+  // 3. Classic mbasic HTML Comments
   if (comments.length === 0) {
     const mbasicRegex = /<h3[^>]*><a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a><\/h3>[\s\S]*?<div[^>]*>([\s\S]*?)<\/div>/gi;
     for (const m of html.matchAll(mbasicRegex)) {
@@ -280,11 +351,12 @@ export function parseComments(html) {
       const rawText = m[3].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
       if (rawName && rawText && !rawText.includes('bình luận') && !rawText.includes('Thích') && !rawText.includes('Báo cáo')) {
         const idMatch = rawHref.match(/[?&]id=(\d+)/) || rawHref.match(/\/([a-zA-Z0-9.]+)/);
+        const fbUserId = idMatch ? idMatch[1] : null;
         comments.push({
           displayName: rawName,
-          fbUserId: idMatch ? idMatch[1] : null,
+          fbUserId,
           profileUrl: `https://www.facebook.com${rawHref.startsWith('/') ? '' : '/'}${rawHref}`,
-          avatarUrl: null,
+          avatarUrl: fbUserId && /^\d+$/.test(fbUserId) ? `https://graph.facebook.com/${fbUserId}/picture?type=normal` : null,
           commentText: rawText,
           interactionType: 'COMMENT'
         });
@@ -316,7 +388,7 @@ export function parseReactors(html) {
           displayName: name,
           fbUserId: id,
           profileUrl: `https://www.facebook.com/${id}`,
-          avatarUrl: null,
+          avatarUrl: id ? `https://graph.facebook.com/${id}/picture?type=normal` : null,
           interactionType: 'REACTION',
           reactionType: 'LIKE',
           commentText: null

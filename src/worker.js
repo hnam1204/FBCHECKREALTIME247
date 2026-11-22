@@ -597,6 +597,8 @@ async function handleApiRoute(pathname, method, request, env, url) {
       total_comments = 0,
       total_shares = 0,
       author_name = null,
+      author_avatar = null,
+      post_image = null,
       content_snippet = null,
       interacted_accounts = []
     } = body;
@@ -630,10 +632,12 @@ async function handleApiRoute(pathname, method, request, env, url) {
       UPDATE monitored_targets
       SET latest_reactions = ?, latest_comments = ?, latest_shares = ?,
           author_name = COALESCE(?, author_name),
+          author_avatar = COALESCE(?, author_avatar),
+          post_image = COALESCE(?, post_image),
           content_snippet = COALESCE(?, content_snippet),
           last_checked_at = ?, last_error = NULL, status = 'ACTIVE'
       WHERE id = ?
-    `).bind(total_reactions, total_comments, total_shares, author_name, content_snippet, now, target_id).run();
+    `).bind(total_reactions, total_comments, total_shares, author_name, author_avatar, post_image, content_snippet, now, target_id).run();
 
     // Insert interacted accounts with deduplication
     if (Array.isArray(interacted_accounts) && interacted_accounts.length > 0) {
@@ -827,9 +831,17 @@ async function syncViaGraphApi(target, token, env, graphVersion) {
     UPDATE monitored_targets
     SET latest_reactions = ?, latest_comments = ?, latest_shares = ?,
         author_name = COALESCE(?, author_name),
+        author_avatar = COALESCE(?, author_avatar),
+        post_image = COALESCE(?, post_image),
         last_checked_at = ?, last_error = NULL, status = 'ACTIVE'
     WHERE id = ?
-  `).bind(totalReactions, totalComments, totalShares, data.from?.name || null, now, target.id).run();
+  `).bind(
+    totalReactions, totalComments, totalShares,
+    data.from?.name || null,
+    data.from?.id ? `https://graph.facebook.com/${data.from.id}/picture?type=large` : null,
+    data.full_picture || data.picture || null,
+    now, target.id
+  ).run();
 
   // Insert Identifiable Comments from Meta Graph API
   if (data.comments && Array.isArray(data.comments.data)) {
@@ -885,11 +897,16 @@ async function syncViaMbasic(target, env, masterKey) {
   // Format URL for fetching: support both share short links and full post links
   let fetchUrl = target.normalized_url;
   if (!fetchUrl.startsWith('http')) {
-    fetchUrl = `https://www.facebook.com/${target.content_id}`;
+    fetchUrl = `https://mbasic.facebook.com/${target.content_id}`;
+  } else {
+    fetchUrl = fetchUrl
+      .replace('www.facebook.com', 'mbasic.facebook.com')
+      .replace('m.facebook.com', 'mbasic.facebook.com')
+      .replace('web.facebook.com', 'mbasic.facebook.com');
   }
 
   const headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
     'Cookie': cookie,
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
@@ -1002,10 +1019,19 @@ async function syncViaMbasic(target, env, masterKey) {
     UPDATE monitored_targets
     SET latest_reactions = ?, latest_comments = ?, latest_shares = ?,
         author_name = COALESCE(?, author_name),
+        author_avatar = COALESCE(?, author_avatar),
+        post_image = COALESCE(?, post_image),
         content_snippet = COALESCE(?, content_snippet),
         last_checked_at = ?, last_error = NULL, status = 'ACTIVE'
     WHERE id = ?
-  `).bind(parsed.totalReactions, parsed.totalComments, parsed.totalShares, parsed.authorName, parsed.contentSnippet, now, target.id).run();
+  `).bind(
+    parsed.totalReactions, parsed.totalComments, parsed.totalShares,
+    parsed.authorName,
+    parsed.authorAvatar || parsed.postImage,
+    parsed.postImage,
+    parsed.contentSnippet,
+    now, target.id
+  ).run();
 
   // Update Cookie Account last sync
   await db.prepare('UPDATE accounts SET last_sync_at = ? WHERE id = ?').bind(now, cookieAcc.id).run();

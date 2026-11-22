@@ -520,12 +520,20 @@ function renderTargetsTable(targets) {
       accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-surface-elevated text-txt-sub border border-surface-border font-medium">🔄 Tự động quét</span>`;
     }
 
+    const avatarSrc = t.author_avatar || t.post_image || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=80&h=80&fit=crop';
+    const postMediaThumb = (t.post_image && t.post_image !== t.author_avatar)
+      ? `<img src="${t.post_image}" referrerpolicy="no-referrer" alt="media" title="Ảnh bài viết Facebook" class="w-8 h-8 rounded-lg object-cover bg-gray-800 border border-surface-border shrink-0 hover:scale-105 transition shadow-sm" onerror="this.style.display='none'">`
+      : '';
+
     return `
       <tr class="hover:bg-surface-elevated/50 transition">
         <td class="p-3.5">
           <div class="flex items-center gap-2.5">
-            <img src="${t.author_avatar || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=80&h=80&fit=crop'}" class="w-8 h-8 rounded-lg object-cover bg-gray-800">
-            <div class="max-w-[240px]">
+            <div class="relative shrink-0">
+              <img src="${avatarSrc}" referrerpolicy="no-referrer" class="w-8 h-8 rounded-lg object-cover bg-gray-800 border border-surface-border" onerror="this.onerror=null;this.src='https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=80&h=80&fit=crop'">
+            </div>
+            ${postMediaThumb}
+            <div class="max-w-[220px]">
               <div class="font-medium text-txt-title truncate">${t.author_name || 'Facebook Item'}</div>
               <a href="${t.normalized_url}" target="_blank" class="text-[11px] text-txt-sub hover:text-brand-cyan truncate block">${t.normalized_url}</a>
             </div>
@@ -647,7 +655,20 @@ async function loadTargetDetail(id) {
     const t = data.target;
     const snap = data.latestSnapshot;
 
-    document.getElementById('detailAvatar').src = t.author_avatar || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=80&h=80&fit=crop';
+    document.getElementById('detailAvatar').src = t.author_avatar || t.post_image || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=80&h=80&fit=crop';
+    
+    // Post Media preview card
+    const mediaCard = document.getElementById('detailMediaCard');
+    const postImg = document.getElementById('detailPostImage');
+    if (mediaCard && postImg) {
+      if (t.post_image) {
+        postImg.src = t.post_image;
+        mediaCard.classList.remove('hidden');
+      } else {
+        mediaCard.classList.add('hidden');
+      }
+    }
+
     document.getElementById('detailAuthor').textContent = t.author_name || 'Facebook Post';
     document.getElementById('detailTypeBadge').textContent = t.target_type;
     document.getElementById('detailStatusBadge').textContent = t.status;
@@ -797,7 +818,7 @@ function renderInteractedAccounts(accounts) {
 
     return `
       <div class="py-2.5 flex items-start gap-3 hover:bg-surface-elevated/30 px-2 rounded-xl transition">
-        <img src="${avatar}" class="w-8 h-8 rounded-full object-cover bg-gray-800 border border-surface-border shrink-0" onerror="this.src='https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=60&h=60&fit=crop'">
+        <img src="${avatar}" referrerpolicy="no-referrer" class="w-8 h-8 rounded-full object-cover bg-gray-800 border border-surface-border shrink-0" onerror="this.onerror=null;this.src='https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=60&h=60&fit=crop'">
         <div class="flex-1 min-w-0">
           <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-2 truncate">
