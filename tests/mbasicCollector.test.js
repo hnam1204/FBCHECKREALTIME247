@@ -77,3 +77,42 @@ test('mbasicCollector: parseMbasicReactionsBreakdown extracts all 7 reaction cou
     angry: 1
   });
 });
+
+test('mbasicCollector: parseMbasicHtml extracts accurate data from Comet React JSON store', async () => {
+  const { parseMbasicHtml } = await import('../src/collector/mbasicCollector.js');
+  const cometHtml = `
+    <!DOCTYPE html>
+    <html>
+      <head><title>𝑵𝒈𝒖𝒚𝒆𝒏 𝑯𝒂𝒊 𝑵𝒂𝒎 | Facebook</title></head>
+      <body>
+        <script>
+          requireLazy(["RelayPrefetchedStreamCache"], function(RelayPrefetchedStreamCache) {
+            RelayPrefetchedStreamCache.next("123", {
+              "feedback": {
+                "reaction_count": {"count": 1},
+                "comments": {"total_count": 0},
+                "share_count": {"count": 0},
+                "top_reactions": {
+                  "count": 1,
+                  "edges": [
+                    {"node": {"id": "1", "localized_name": "Thích"}, "reaction_count": 1}
+                  ]
+                }
+              },
+              "message": {"text": "Chia sẻ bài viết thử nghiệm hệ thống"}
+            });
+          });
+        </script>
+      </body>
+    </html>
+  `;
+
+  const parsed = parseMbasicHtml(cometHtml);
+  assert.equal(parsed.totalReactions, 1);
+  assert.equal(parsed.reactions.like, 1);
+  assert.equal(parsed.totalComments, 0);
+  assert.equal(parsed.totalShares, 0);
+  assert.equal(parsed.authorName, '𝑵𝒈𝒖𝒚𝒆𝒏 𝑯𝒂𝒊 𝑵𝒂𝒎');
+  assert.equal(parsed.contentSnippet, 'Chia sẻ bài viết thử nghiệm hệ thống');
+});
+

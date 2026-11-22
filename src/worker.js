@@ -619,12 +619,10 @@ async function syncViaMbasic(target, env, masterKey) {
     throw new Error('Không thể giải mã cookie');
   }
 
-  // Format URL for mbasic
-  let mbasicUrl = target.normalized_url;
-  if (mbasicUrl.includes('facebook.com')) {
-    mbasicUrl = mbasicUrl.replace(/https?:\/\/(?:www\.|m\.)?facebook\.com/, 'https://mbasic.facebook.com');
-  } else if (target.content_id) {
-    mbasicUrl = `https://mbasic.facebook.com/${target.content_id}`;
+  // Format URL for fetching: support both share short links and full post links
+  let fetchUrl = target.normalized_url;
+  if (!fetchUrl.startsWith('http')) {
+    fetchUrl = `https://www.facebook.com/${target.content_id}`;
   }
 
   const headers = {
@@ -633,10 +631,11 @@ async function syncViaMbasic(target, env, masterKey) {
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
     'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate'
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none'
   };
 
-  const response = await fetch(mbasicUrl, { headers });
+  const response = await fetch(fetchUrl, { headers, redirect: 'follow' });
   const html = await response.text();
 
   // Checkpoint or Login Wall Detection
@@ -651,15 +650,14 @@ async function syncViaMbasic(target, env, masterKey) {
 
   const parsed = parseMbasicHtml(html);
 
-  // If detailed reaction tab exists, fetch breakdown of 7 reaction types
-  let breakdown = { like: parsed.totalReactions, love: 0, care: 0, haha: 0, wow: 0, sad: 0, angry: 0 };
+  // Use parsed reactions breakdown (or fetch ufi if legacy mbasic)
+  let breakdown = parsed.reactions || { like: parsed.totalReactions, love: 0, care: 0, haha: 0, wow: 0, sad: 0, angry: 0 };
   if (parsed.reactionsBrowserUrl) {
     try {
       const ufiUrl = `https://mbasic.facebook.com${parsed.reactionsBrowserUrl}`;
       const ufiRes = await fetch(ufiUrl, { headers });
       const ufiHtml = await ufiRes.text();
       breakdown = parseMbasicReactionsBreakdown(ufiHtml);
-      // Ensure sum is reasonable or keep total
       if (parsed.totalReactions === 0) {
         parsed.totalReactions = Object.values(breakdown).reduce((a, b) => a + b, 0);
       }

@@ -1,5 +1,5 @@
 /**
- * Facebook mbasic HTML parser and metrics extractor for 3rd-party public targets.
+ * Facebook mbasic & Comet HTML parser and metrics extractor for 3rd-party public targets.
  * Works natively in both Node.js and Cloudflare Workers (pure regex & string operations).
  */
 
@@ -28,7 +28,6 @@ export function isCheckpointOrLogin(currentUrl, html) {
   }
   const htmlLower = (html || '').toLowerCase();
   if (htmlLower.includes('id="login_form"') || htmlLower.includes('name="login"') || htmlLower.includes('name="email"')) {
-    // If there is a password input, it's definitely a login wall
     if (htmlLower.includes('type="password"')) {
       return true;
     }
@@ -52,13 +51,12 @@ export function parseCount(str) {
     const n = parseFloat(clean.replace(/,/g, '.').slice(0, -1));
     return Math.round(n * 1000000);
   }
-  // Strip non-numeric characters except digits
   const digits = clean.replace(/[^\d]/g, '');
   return parseInt(digits || '0', 10);
 }
 
 /**
- * Parses mbasic post HTML page
+ * Parses Facebook HTML page (supports both Comet React JSON blobs and mbasic HTML)
  * @param {string} html
  * @returns {{
  *   totalReactions: number,
@@ -83,16 +81,82 @@ export function parseMbasicHtml(html) {
     };
   }
 
-  // 1. Reactions Browser URL and count
   let totalReactions = 0;
+  let totalComments = 0;
+  let totalShares = 0;
+  let reactions = { like: 0, love: 0, care: 0, haha: 0, wow: 0, sad: 0, angry: 0 };
+  let authorName = null;
+  let contentSnippet = null;
   let reactionsBrowserUrl = null;
 
-  // Pattern: <a href="/ufi/reaction/profile/browser/?ft_ent_identifier=...">... 45 ...</a>
+  // Extract author from title
+  const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
+  if (titleMatch) {
+    const t = titleMatch[1].replace(/\s*\|\s*Facebook$/i, '').trim();
+    if (t && !t.includes('Facebook') && !t.includes('Error') && !t.includes('Đăng nhập') && !t.includes('Log in')) {
+      authorName = t;
+    }
+  }
+
+  // --- ENGINE 1: Embedded Comet JSON Blobs (High-Precision React Store) ---
+  const rxJson = html.match(/"reaction_count"\s*:\s*\{\s*"count"\s*:\s*(\d+)/i) || html.match(/"i18n_reaction_count"\s*:\s*"(\d+)"/i);
+  const cmtJson = html.match(/"comments"\s*:\s*\{\s*"total_count"\s*:\s*(\d+)/i) || html.match(/"total_comment_count"\s*:\s*(\d+)/i) || html.match(/"comment_count"\s*:\s*\{\s*"total_count"\s*:\s*(\d+)/i);
+  const shJson = html.match(/"share_count"\s*:\s*\{\s*"count"\s*:\s*(\d+)/i) || html.match(/"i18n_share_count"\s*:\s*"(\d+)"/i);
+
+  if (rxJson || cmtJson || shJson) {
+    totalReactions = rxJson ? parseInt(rxJson[1], 10) : 0;
+    totalComments = cmtJson ? parseInt(cmtJson[1], 10) : 0;
+    totalShares = shJson ? parseInt(shJson[1], 10) : 0;
+
+    const msgMatch = html.match(/"message"\s*:\s*\{\s*"text"\s*:\s*"([^"]+)"\}/);
+    if (msgMatch) {
+      try {
+        contentSnippet = JSON.parse(`"${msgMatch[1]}"`).slice(0, 200);
+      } catch {
+        contentSnippet = msgMatch[1].slice(0, 200);
+      }
+    }
+
+    // Parse top_reactions breakdown if available
+    const topRxSection = html.match(/"top_reactions"\s*:\s*\{\s*"count"\s*:\s*\d+,\s*"edges"\s*:\s*(\[[^\]]+\])\}/);
+    if (topRxSection) {
+      try {
+        const edges = JSON.parse(topRxSection[1]);
+        for (const e of edges) {
+          const name = (e.node?.localized_name || '').toLowerCase();
+          const count = e.reaction_count || (e.i18n_reaction_count ? parseInt(e.i18n_reaction_count, 10) : 0);
+          if (name.includes('thích') || name.includes('like')) reactions.like = count;
+          else if (name.includes('yêu') || name.includes('love')) reactions.love = count;
+          else if (name.includes('thương') || name.includes('care')) reactions.care = count;
+          else if (name.includes('haha')) reactions.haha = count;
+          else if (name.includes('wow')) reactions.wow = count;
+          else if (name.includes('buồn') || name.includes('sad')) reactions.sad = count;
+          else if (name.includes('phẫn') || name.includes('angry')) reactions.angry = count;
+        }
+      } catch (e) {
+        // Fallback
+        reactions.like = totalReactions;
+      }
+    } else {
+      reactions.like = totalReactions;
+    }
+
+    return {
+      totalReactions,
+      reactions,
+      totalComments,
+      totalShares,
+      authorName,
+      contentSnippet,
+      reactionsBrowserUrl: null
+    };
+  }
+
+  // --- ENGINE 2: Classic mbasic HTML Regex (When served plain mbasic without Comet) ---
   const rxLinkMatch = html.match(/href="(\/ufi\/reaction\/profile\/browser\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
   if (rxLinkMatch) {
     reactionsBrowserUrl = rxLinkMatch[1].replace(/&amp;/g, '&');
     const rawText = rxLinkMatch[2].replace(/<[^>]+>/g, '').trim();
-    // E.g. "Bạn và 45 người khác" -> 46, or "45 người khác" -> 45, or "45"
     if (rawText.includes('Bạn và') || rawText.includes('You and')) {
       const match = rawText.match(/(\d[\d.,]*)/);
       totalReactions = (match ? parseCount(match[1]) : 0) + 1;
@@ -101,15 +165,12 @@ export function parseMbasicHtml(html) {
       totalReactions = match ? parseCount(match[1]) : 0;
     }
   } else {
-    // Fallback: look for generic reaction text patterns
     const fallbackMatch = html.match(/(\d[\d.,]*\s*(?:K|M)?)\s*(?:người khác|người|lượt thích|thích|reactions|likes)/i);
     if (fallbackMatch) {
       totalReactions = parseCount(fallbackMatch[1]);
     }
   }
 
-  // 2. Comments count
-  let totalComments = 0;
   const cmtMatch = html.match(/(\d[\d.,]*\s*(?:K|M)?)\s*(?:bình luận|bình luận trước|comments)/i)
     || html.match(/href="[^"]*\/mbasic\/comment\/[^"]*"[^>]*>([\s\S]*?)<\/a>/i);
   if (cmtMatch) {
@@ -118,8 +179,6 @@ export function parseMbasicHtml(html) {
     if (countMatch) totalComments = parseCount(countMatch[1]);
   }
 
-  // 3. Shares count
-  let totalShares = 0;
   const shareMatch = html.match(/(\d[\d.,]*\s*(?:K|M)?)\s*(?:lượt chia sẻ|lượt chia sẽ|chia sẻ|shares)/i)
     || html.match(/href="[^"]*\/shares\/view\/[^"]*"[^>]*>([\s\S]*?)<\/a>/i);
   if (shareMatch) {
@@ -128,15 +187,6 @@ export function parseMbasicHtml(html) {
     if (countMatch) totalShares = parseCount(countMatch[1]);
   }
 
-  // 4. Author Name
-  let authorName = null;
-  const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
-  if (titleMatch) {
-    const t = titleMatch[1].replace(/\s*\|\s*Facebook$/i, '').trim();
-    if (t && !t.includes('Facebook') && !t.includes('Đăng nhập') && !t.includes('Log in')) {
-      authorName = t;
-    }
-  }
   if (!authorName) {
     const actorMatch = html.match(/<h3[^>]*class="[^"]*actor[^"]*"[^>]*>([\s\S]*?)<\/h3>/i)
       || html.match(/<strong[^>]*class="[^"]*actor[^"]*"[^>]*>([\s\S]*?)<\/strong>/i);
@@ -145,25 +195,17 @@ export function parseMbasicHtml(html) {
     }
   }
 
-  // 5. Content Snippet
-  let contentSnippet = null;
   const pMatch = html.match(/<div[^>]*data-ft="[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
   if (pMatch) {
     const text = pMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     if (text.length > 5) contentSnippet = text.slice(0, 200);
   }
 
+  reactions.like = totalReactions;
+
   return {
     totalReactions,
-    reactions: {
-      like: totalReactions, // default to all like if breakdown isn't fetched
-      love: 0,
-      care: 0,
-      haha: 0,
-      wow: 0,
-      sad: 0,
-      angry: 0
-    },
+    reactions,
     totalComments,
     totalShares,
     authorName,
@@ -190,16 +232,6 @@ export function parseMbasicReactionsBreakdown(html) {
 
   if (!html || typeof html !== 'string') return result;
 
-  // Patterns on mbasic reaction tabs:
-  // <a href="...&reaction_type=1..."><span>Tất cả 45</span></a>
-  // <a href="...&reaction_type=1..."><span>Thích 20</span></a>
-  // <a href="...&reaction_type=2..."><span>Yêu thích 15</span></a>
-  // <a href="...&reaction_type=16..."><span>Thương thương 5</span></a>
-  // <a href="...&reaction_type=4..."><span>Haha 3</span></a>
-  // <a href="...&reaction_type=3..."><span>Wow 1</span></a>
-  // <a href="...&reaction_type=7..."><span>Buồn 1</span></a>
-  // <a href="...&reaction_type=8..."><span>Phẫn nộ 0</span></a>
-
   const tabMatches = html.matchAll(/<a[^>]+href="[^"]*reaction_type=(\d+)[^"]*"[^>]*>([\s\S]*?)<\/a>/gi);
   for (const m of tabMatches) {
     const typeId = parseInt(m[1], 10);
@@ -208,25 +240,25 @@ export function parseMbasicReactionsBreakdown(html) {
     const count = countMatch ? parseCount(countMatch[1]) : 0;
 
     switch (typeId) {
-      case 1: // LIKE
+      case 1:
         result.like = count;
         break;
-      case 2: // LOVE
+      case 2:
         result.love = count;
         break;
-      case 16: // CARE
+      case 16:
         result.care = count;
         break;
-      case 4: // HAHA
+      case 4:
         result.haha = count;
         break;
-      case 3: // WOW
+      case 3:
         result.wow = count;
         break;
-      case 7: // SAD
+      case 7:
         result.sad = count;
         break;
-      case 8: // ANGRY
+      case 8:
         result.angry = count;
         break;
       default:
