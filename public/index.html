@@ -655,22 +655,305 @@
       </div>
     </div>
 
-    <!-- ================= TAB: COMPARISON ================= -->
-    <div id="view-comparison" class="hidden space-y-4">
-      <div class="surface-card rounded-xl p-5">
-        <div class="flex items-center justify-between mb-4">
-          <div>
-            <h2 class="text-sm font-semibold text-txt-title">So sánh tương tác đa nội dung</h2>
-            <p class="text-xs text-txt-sub">Chọn 2 đến 4 bài viết để đối chiếu biểu đồ tăng trưởng thực tế</p>
+    <!-- ================= TAB: COMPARISON (REDESIGNED: POST COMPARISON ANALYTICS - PROMPT 04) ================= -->
+    <div id="view-comparison" class="hidden space-y-6">
+
+      <!-- HEADER BANNER & TOOLBAR -->
+      <div class="surface-card rounded-2xl p-5 border border-surface-border flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+        <div>
+          <div class="flex items-center gap-3">
+            <h2 class="text-lg font-extrabold tracking-tight text-txt-title">Đối chiếu & So sánh tương tác</h2>
+            <span class="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/30 inline-flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-brand-cyan animate-pulse"></span>
+              <span>Đo lường đa đối tượng</span>
+            </span>
           </div>
-          <button onclick="renderComparison()" class="px-3.5 py-1.5 bg-brand-blue hover:bg-brand-ocean text-white rounded-lg text-xs font-medium border border-brand-cyan/30">Cập nhật biểu đồ</button>
+          <p class="text-xs text-txt-sub mt-1">Phân tích tương quan, đối chiếu 7 cảm xúc và phát hiện trùng lặp tài khoản giữa 2 đến 4 bài viết</p>
         </div>
-        <div id="comparisonCheckboxes" class="flex flex-wrap gap-3 mb-4 text-xs">
-          <!-- Populated dynamically -->
+
+        <div class="flex flex-wrap items-center gap-2.5">
+          <!-- Mode Toggle: Realtime vs Post Age -->
+          <div class="flex items-center bg-surface-elevated/70 p-1 rounded-xl border border-surface-border text-xs">
+            <button id="btnCompModeAbsolute" onclick="setComparisonMode('ABSOLUTE_TIME')" class="px-3 py-1.5 rounded-lg font-medium transition cursor-pointer bg-brand-blue text-white shadow-sm">
+              Thời gian thực
+            </button>
+            <button id="btnCompModeAge" onclick="setComparisonMode('POST_AGE')" class="px-3 py-1.5 rounded-lg font-medium transition cursor-pointer text-txt-sub hover:text-txt-title">
+              Tuổi bài viết (T+h)
+            </button>
+          </div>
+
+          <!-- Time Range Pill Selector -->
+          <div class="flex items-center bg-surface-elevated/70 p-1 rounded-xl border border-surface-border overflow-x-auto text-xs">
+            <button onclick="setComparisonRange('5M')" class="comp-range-btn px-2.5 py-1 rounded-lg font-medium transition text-txt-sub hover:text-txt-title" data-range="5M">5M</button>
+            <button onclick="setComparisonRange('15M')" class="comp-range-btn px-2.5 py-1 rounded-lg font-medium transition text-txt-sub hover:text-txt-title" data-range="15M">15M</button>
+            <button onclick="setComparisonRange('30M')" class="comp-range-btn px-2.5 py-1 rounded-lg font-medium transition text-txt-sub hover:text-txt-title" data-range="30M">30M</button>
+            <button onclick="setComparisonRange('1H')" class="comp-range-btn px-2.5 py-1 rounded-lg font-medium transition text-txt-sub hover:text-txt-title" data-range="1H">1H</button>
+            <button onclick="setComparisonRange('3H')" class="comp-range-btn px-2.5 py-1 rounded-lg font-medium transition text-txt-sub hover:text-txt-title" data-range="3H">3H</button>
+            <button onclick="setComparisonRange('6H')" class="comp-range-btn px-2.5 py-1 rounded-lg font-medium transition text-txt-sub hover:text-txt-title" data-range="6H">6H</button>
+            <button onclick="setComparisonRange('12H')" class="comp-range-btn px-2.5 py-1 rounded-lg font-medium transition text-txt-sub hover:text-txt-title" data-range="12H">12H</button>
+            <button onclick="setComparisonRange('24H')" class="comp-range-btn px-2.5 py-1 rounded-lg font-medium transition bg-brand-blue text-white shadow-sm" data-range="24H">24H</button>
+            <button onclick="setComparisonRange('7D')" class="comp-range-btn px-2.5 py-1 rounded-lg font-medium transition text-txt-sub hover:text-txt-title" data-range="7D">7D</button>
+            <button onclick="setComparisonRange('30D')" class="comp-range-btn px-2.5 py-1 rounded-lg font-medium transition text-txt-sub hover:text-txt-title" data-range="30D">30D</button>
+          </div>
+
+          <!-- Refresh Button -->
+          <button onclick="refreshComparison()" class="p-2 bg-surface-elevated hover:bg-surface text-txt-body rounded-xl border border-surface-border transition cursor-pointer" title="Làm mới dữ liệu so sánh">
+            <svg id="compRefreshSpinner" class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+          </button>
+
+          <!-- Export Dropdown -->
+          <div class="relative inline-block text-left" id="compExportMenuContainer">
+            <button onclick="toggleCompExportMenu()" class="px-3 py-2 bg-brand-blue hover:bg-brand-ocean text-white text-xs font-semibold rounded-xl border border-brand-cyan/20 flex items-center gap-1.5 transition active:scale-95 shadow-sm cursor-pointer">
+              <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+              <span>Xuất báo cáo</span>
+              <svg class="w-3 h-3 ml-0.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+            </button>
+            <div id="compExportDropdown" class="hidden absolute right-0 mt-2 w-48 rounded-xl shadow-2xl bg-surface-card border border-surface-border p-1.5 z-50">
+              <button onclick="exportComparisonReport('csv')" class="w-full text-left px-3 py-2 text-xs text-txt-body hover:bg-surface-elevated rounded-lg flex items-center gap-2 transition">
+                <span class="text-emerald-400 font-bold font-mono">CSV</span>
+                <span>Tải tệp bảng tính (.csv)</span>
+              </button>
+              <button onclick="exportComparisonReport('json')" class="w-full text-left px-3 py-2 text-xs text-txt-body hover:bg-surface-elevated rounded-lg flex items-center gap-2 transition">
+                <span class="text-amber-400 font-bold font-mono">JSON</span>
+                <span>Tải dữ liệu phân tích (.json)</span>
+              </button>
+              <button onclick="exportComparisonReport('print')" class="w-full text-left px-3 py-2 text-xs text-txt-body hover:bg-surface-elevated rounded-lg flex items-center gap-2 transition border-t border-surface-border/50 mt-1 pt-1.5">
+                <svg class="w-3.5 h-3.5 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+                <span>In / Xuất PDF báo cáo</span>
+              </button>
+            </div>
+          </div>
         </div>
-        <div class="h-80">
-          <canvas id="comparisonChart"></canvas>
+      </div>
+
+      <!-- DEDICATED POST SELECTOR -->
+      <div class="surface-card rounded-2xl p-5 border border-surface-border space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h3 class="text-sm font-bold text-txt-title flex items-center gap-2">
+              <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+              <span>Đối tượng đối chiếu</span>
+              <span id="compSelectedCountBadge" class="text-xs px-2 py-0.5 rounded-full bg-brand-cyan/20 text-brand-cyan font-mono">0 / 4</span>
+            </h3>
+            <p class="text-xs text-txt-sub">Chọn từ 2 đến tối đa 4 bài viết để hệ thống xây dựng ma trận đối chiếu</p>
+          </div>
+
+          <!-- Add Post Dropdown -->
+          <div class="relative" id="compAddPostContainer">
+            <select id="compAddPostSelect" onchange="handleAddPostSelect(this)" class="px-3.5 py-2 bg-surface-elevated text-txt-title rounded-xl border border-surface-border text-xs focus:ring-1 focus:ring-brand-cyan focus:outline-none cursor-pointer">
+              <option value="">+ Thêm bài viết vào đối chiếu...</option>
+            </select>
+          </div>
         </div>
+
+        <!-- Selected Posts Cards Grid -->
+        <div id="compSelectedCardsGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          <!-- Populated by JavaScript -->
+        </div>
+
+        <!-- Warning banner if < 2 posts -->
+        <div id="compInsufficientBanner" class="hidden p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-3">
+          <svg class="w-5 h-5 flex-shrink-0 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+          <div>
+            <span class="font-bold">Chưa đủ dữ liệu đối chiếu:</span>
+            <span> Cần tối thiểu 2 bài viết để tạo ma trận so sánh. Vui lòng chọn thêm bài viết từ danh sách trên hoặc nhấn nút "So sánh" ở tab Danh sách giám sát.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- MAIN COMPARISON DATA CONTAINER (HIDDEN WHEN < 2 POSTS) -->
+      <div id="compAnalyticsContent" class="space-y-6">
+
+        <!-- COMPONENT 8: RULE-BASED VERIFIABLE INSIGHTS BOX (Prominently at top) -->
+        <div class="surface-card rounded-2xl p-5 border border-brand-cyan/30 bg-gradient-to-r from-brand-ocean/20 via-surface to-brand-ocean/10 space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-bold text-txt-title flex items-center gap-2">
+              <svg class="w-4 h-4 text-brand-cyan animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+              <span>Nhận xét đối chiếu tự động</span>
+              <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-brand-cyan/20 text-brand-cyan font-semibold">Verifiable Analytics</span>
+            </h3>
+            <span class="text-[11px] text-txt-sub font-mono">Dựa trên dữ liệu thực tế thu nhận</span>
+          </div>
+          <div id="compInsightsList" class="space-y-2 text-xs text-txt-body">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+
+        <!-- COMPONENT 1: ENGAGEMENT SUMMARY TABLE -->
+        <div class="surface-card rounded-2xl border border-surface-border overflow-hidden">
+          <div class="p-4 border-b border-surface-border flex items-center justify-between bg-surface-elevated/40">
+            <div>
+              <h3 class="text-sm font-bold text-txt-title flex items-center gap-2">
+                <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                <span>Bảng tổng hợp tương tác</span>
+              </h3>
+              <p class="text-xs text-txt-sub">So sánh chi tiết tổng tương tác, các thành phần và biến động tăng trưởng trong kỳ</p>
+            </div>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs text-left">
+              <thead class="bg-surface-elevated/60 text-txt-sub uppercase font-semibold text-[11px] border-b border-surface-border">
+                <tr>
+                  <th class="p-3.5">Bài viết</th>
+                  <th class="p-3.5 text-right">Tổng tương tác</th>
+                  <th class="p-3.5 text-right">Cảm xúc</th>
+                  <th class="p-3.5 text-right">Bình luận</th>
+                  <th class="p-3.5 text-right">Chia sẻ</th>
+                  <th class="p-3.5 text-right">Tăng trong kỳ</th>
+                  <th class="p-3.5 text-right">% Thay đổi</th>
+                </tr>
+              </thead>
+              <tbody id="compEngagementTableBody" class="divide-y divide-surface-border font-medium text-txt-body">
+                <!-- Populated by JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- COMPONENT 3 & 4: GROWTH CURVES & TIME DISTRIBUTION (Side by side on desktop) -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <!-- Component 3: Growth Chart (2 cols) -->
+          <div class="lg:col-span-2 surface-card rounded-2xl p-5 border border-surface-border space-y-4">
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="text-sm font-bold text-txt-title flex items-center gap-2">
+                  <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
+                  <span>Biểu đồ tăng trưởng tương tác</span>
+                </h3>
+                <p class="text-xs text-txt-sub" id="compGrowthSubtitle">Đường cong tích lũy theo trục thời gian</p>
+              </div>
+            </div>
+            <div class="h-80 relative">
+              <canvas id="compGrowthChartCanvas"></canvas>
+            </div>
+            <!-- Growth KPI Chips -->
+            <div id="compGrowthKpis" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-2 border-t border-surface-border/60">
+              <!-- Populated by JS -->
+            </div>
+          </div>
+
+          <!-- Component 4: Time Distribution / Buckets (1 col) -->
+          <div class="surface-card rounded-2xl p-5 border border-surface-border space-y-4">
+            <div>
+              <h3 class="text-sm font-bold text-txt-title flex items-center gap-2">
+                <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span>Phân bổ theo khung giờ</span>
+              </h3>
+              <p class="text-xs text-txt-sub">Mức tăng trưởng theo từng khoảng đo lường</p>
+            </div>
+            <div class="h-80 relative">
+              <canvas id="compTimeBucketChartCanvas"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- COMPONENT 2: 7 REACTIONS BREAKDOWN -->
+        <div class="surface-card rounded-2xl p-5 border border-surface-border space-y-5">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h3 class="text-sm font-bold text-txt-title flex items-center gap-2">
+                <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span>Phân tích cơ cấu 7 cảm xúc Facebook</span>
+              </h3>
+              <p class="text-xs text-txt-sub">So sánh tỷ trọng Like, Love, Care, Haha, Wow, Sad, Angry giữa các bài viết</p>
+            </div>
+          </div>
+          <!-- Bar Chart for Reactions -->
+          <div class="h-72 relative">
+            <canvas id="compReactionsBarChartCanvas"></canvas>
+          </div>
+          <!-- 7 Reactions Breakdown Table -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs text-left">
+              <thead class="bg-surface-elevated/60 text-txt-sub uppercase font-semibold text-[10px] border-b border-surface-border">
+                <tr>
+                  <th class="p-3">Bài viết</th>
+                  <th class="p-3 text-center text-blue-400">Like (Thích)</th>
+                  <th class="p-3 text-center text-rose-400">Love (Yêu thích)</th>
+                  <th class="p-3 text-center text-amber-300">Care (Thương thương)</th>
+                  <th class="p-3 text-center text-yellow-400">Haha</th>
+                  <th class="p-3 text-center text-orange-400">Wow</th>
+                  <th class="p-3 text-center text-indigo-400">Sad (Buồn)</th>
+                  <th class="p-3 text-center text-red-500">Angry (Phẫn nộ)</th>
+                </tr>
+              </thead>
+              <tbody id="compReactionsTableBody" class="divide-y divide-surface-border font-medium text-txt-body">
+                <!-- Populated by JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- COMPONENT 7 & 5: RELATIVE PERFORMANCE & AUTHENTICITY -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <!-- Component 7: Performance / Efficiency -->
+          <div class="surface-card rounded-2xl p-5 border border-surface-border space-y-4">
+            <div>
+              <h3 class="text-sm font-bold text-txt-title flex items-center gap-2">
+                <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+                <span>Chỉ số hiệu suất & Tốc độ lan tỏa</span>
+              </h3>
+              <p class="text-xs text-txt-sub">Tỷ lệ bình luận, tỷ lệ chia sẻ và vận tốc tăng trưởng/giờ</p>
+            </div>
+            <div id="compPerformanceGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              <!-- Populated by JS -->
+            </div>
+          </div>
+
+          <!-- Component 5: Authenticity / Anomaly -->
+          <div class="surface-card rounded-2xl p-5 border border-surface-border space-y-4">
+            <div>
+              <h3 class="text-sm font-bold text-txt-title flex items-center gap-2">
+                <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                <span>Đánh giá tính chân thực tương tác</span>
+              </h3>
+              <p class="text-xs text-txt-sub">Phát hiện trùng lặp bình luận và cảnh báo biến động bất thường</p>
+            </div>
+            <div id="compAuthenticityGrid" class="space-y-3">
+              <!-- Populated by JS -->
+            </div>
+          </div>
+        </div>
+
+        <!-- COMPONENT 6: INTERACTION ACCOUNTS OVERLAP & JACCARD INDEX -->
+        <div class="surface-card rounded-2xl p-5 border border-surface-border space-y-5">
+          <div>
+            <h3 class="text-sm font-bold text-txt-title flex items-center gap-2">
+              <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+              <span>Đối chiếu tài khoản tương tác chéo (Jaccard Overlap)</span>
+            </h3>
+            <p class="text-xs text-txt-sub">Đo lường độ trùng lặp tập tài khoản giữa các bài viết dựa trên mẫu dữ liệu bóc tách hợp lệ</p>
+          </div>
+
+          <!-- Jaccard Matrix Cards -->
+          <div id="compJaccardPairsGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            <!-- Populated by JS -->
+          </div>
+
+          <!-- Common Accounts List -->
+          <div class="space-y-3 pt-3 border-t border-surface-border/60">
+            <h4 class="text-xs font-bold text-txt-title flex items-center gap-2">
+              <span>Danh sách tài khoản xuất hiện ở nhiều bài viết</span>
+              <span id="compCommonAccountsBadge" class="text-[10px] px-2 py-0.5 rounded-full bg-surface-elevated text-txt-sub font-mono">0 tài khoản</span>
+            </h4>
+            <div class="overflow-x-auto max-h-72 overflow-y-auto rounded-xl border border-surface-border">
+              <table class="w-full text-xs text-left">
+                <thead class="bg-surface-elevated/80 text-txt-sub uppercase font-semibold text-[10px] sticky top-0 z-10 border-b border-surface-border">
+                  <tr>
+                    <th class="p-3">Tài khoản</th>
+                    <th class="p-3">Bài viết xuất hiện</th>
+                    <th class="p-3">Hành vi tương tác</th>
+                    <th class="p-3 text-right">Trang cá nhân</th>
+                  </tr>
+                </thead>
+                <tbody id="compCommonAccountsTableBody" class="divide-y divide-surface-border font-medium text-txt-body">
+                  <!-- Populated by JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
 

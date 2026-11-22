@@ -3,6 +3,14 @@ let currentTab = 'overview';
 let overviewChartInstance = null;
 let detailChartInstance = null;
 let comparisonChartInstance = null;
+let compGrowthChartInstance = null;
+let compReactionsChartInstance = null;
+let compTimeBucketChartInstance = null;
+let selectedComparisonIds = [];
+let currentComparisonRange = '24H';
+let currentComparisonMode = 'ABSOLUTE_TIME';
+let compAvailableTargetsCache = [];
+let comparisonAnalyticsCache = null;
 let currentDetailTargetId = null;
 let ws = null;
 let searchTimeout = null;
@@ -103,7 +111,7 @@ function toggleTheme() {
 
   // Re-render charts with updated theme palette colors
   if (currentTab === 'overview') fetchOverview();
-  if (currentTab === 'comparison') renderComparison();
+  if (currentTab === 'comparison') fetchAndRenderComparison();
   if (currentDetailTargetId) loadTargetDetail(currentDetailTargetId);
 }
 
@@ -155,7 +163,7 @@ function switchTab(tabId) {
 
   if (tabId === 'overview') fetchOverview();
   if (tabId === 'targets') fetchTargets();
-  if (tabId === 'comparison') loadComparisonCheckboxes();
+  if (tabId === 'comparison') loadComparisonView();
   if (tabId === 'alerts') fetchAlerts();
 }
 
@@ -982,6 +990,9 @@ function renderTargetsTable(targets) {
         <td class="p-3.5 text-right">
           <div class="flex items-center justify-end gap-1.5">
             <button onclick="openDetailModal(${t.id})" class="px-2.5 py-1 bg-surface-elevated hover:bg-brand-blue/30 text-brand-cyan rounded-lg text-xs font-semibold transition border border-surface-border">Chi tiết</button>
+            <button onclick="addPostToComparisonAndNavigate(${t.id})" title="Thêm vào đối chiếu so sánh" class="p-1.5 bg-surface-elevated hover:bg-brand-blue/30 text-amber-400 rounded-lg text-xs transition border border-surface-border active:scale-95 cursor-pointer">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+            </button>
             <button id="btn-sync-${t.id}" onclick="syncTargetNow(${t.id})" title="Đồng bộ tức thời" class="p-1.5 bg-surface-elevated hover:bg-brand-blue/30 text-brand-cyan rounded-lg text-xs transition border border-surface-border active:scale-95 cursor-pointer">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
             </button>
@@ -2806,119 +2817,659 @@ function dispatchDesktopNotification(alert) {
   }
 }
 
-// --- 7. Comparison Tab ---
-async function loadComparisonCheckboxes() {
-  try {
-    const res = await fetch('/api/targets?limit=20');
-    const data = await res.json();
-    const container = document.getElementById('comparisonCheckboxes');
+// ================= 7. COMPARISON TAB CONTROLLER (PROMPT 04) =================
+const COMP_COLORS = ['#38C6FF', '#10B981', '#F59E0B', '#EC4899'];
 
-    if (!data.targets || data.targets.length === 0) {
-      container.innerHTML = '<div class="text-xs text-txt-sub italic">Chưa có bài viết nào trong danh sách giám sát để so sánh.</div>';
-      return;
+async function loadComparisonView() {
+  try {
+    const res = await fetch('/api/targets?limit=50');
+    const data = await res.json();
+    compAvailableTargetsCache = data.targets || [];
+
+    // If no posts selected yet, select first 2 active targets by default
+    if (selectedComparisonIds.length === 0 && compAvailableTargetsCache.length >= 2) {
+      selectedComparisonIds = compAvailableTargetsCache.slice(0, 2).map(t => t.id);
+    } else if (selectedComparisonIds.length === 0 && compAvailableTargetsCache.length === 1) {
+      selectedComparisonIds = [compAvailableTargetsCache[0].id];
     }
 
-    container.innerHTML = data.targets.map((t, idx) => `
-      <label class="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface border border-surface-border cursor-pointer hover:border-brand-cyan/40 transition">
-        <input type="checkbox" name="compTarget" value="${t.id}" ${idx < 4 ? 'checked' : ''} onchange="renderComparison()" class="rounded text-brand-cyan focus:ring-0">
-        <span class="text-txt-title font-medium">${t.author_name || 'Post #' + t.id}</span>
-        <span class="text-[11px] text-txt-sub">(${t.latest_reactions || 0} rx)</span>
-      </label>
-    `).join('');
-
-    renderComparison();
-  } catch (e) {
-    console.error('Lỗi tải danh sách so sánh:', e);
+    renderComparisonSelector();
+    await fetchAndRenderComparison();
+  } catch (err) {
+    console.error('Lỗi khởi tạo view so sánh:', err);
   }
 }
 
-async function renderComparison() {
-  const selected = Array.from(document.querySelectorAll('input[name="compTarget"]:checked')).map(el => el.value);
-  if (selected.length === 0) {
-    if (comparisonChartInstance) {
-      comparisonChartInstance.destroy();
-      comparisonChartInstance = null;
+// Backwards-compatibility alias
+function loadComparisonCheckboxes() {
+  return loadComparisonView();
+}
+
+function renderComparisonSelector() {
+  const badge = document.getElementById('compSelectedCountBadge');
+  if (badge) {
+    badge.textContent = `${selectedComparisonIds.length} / 4`;
+  }
+
+  const grid = document.getElementById('compSelectedCardsGrid');
+  if (!grid) return;
+
+  if (selectedComparisonIds.length === 0) {
+    grid.innerHTML = '<div class="col-span-full text-xs text-txt-sub italic p-3 rounded-xl bg-surface/50 border border-surface-border text-center">Chưa có bài viết nào được chọn để đối chiếu. Hãy chọn bài viết bên dưới.</div>';
+  } else {
+    grid.innerHTML = selectedComparisonIds.map((targetId, idx) => {
+      const target = compAvailableTargetsCache.find(t => t.id === targetId) || (comparisonAnalyticsCache?.targets || []).find(t => t.id === targetId) || { id: targetId, author_name: `Post #${targetId}`, latest_reactions: 0 };
+      const color = COMP_COLORS[idx % COMP_COLORS.length];
+      const authorName = target.author_name || target.authorName || `Post #${targetId}`;
+      const avatar = target.author_avatar || target.authorAvatar || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=80&auto=format&fit=crop&q=60';
+      const reactions = target.latest_reactions || target.latestReactions || 0;
+
+      return `
+        <div class="p-3 rounded-xl bg-surface border border-surface-border flex items-center justify-between gap-2.5 relative overflow-hidden group shadow-sm transition hover:border-brand-cyan/40">
+          <div class="w-1.5 absolute left-0 top-0 bottom-0 rounded-l" style="background-color: ${color}"></div>
+          <div class="flex items-center gap-2.5 min-w-0 pl-1.5">
+            <img src="${avatar}" alt="" class="w-8 h-8 rounded-full border border-surface-border object-cover flex-shrink-0" onerror="this.src='https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=80&auto=format&fit=crop&q=60'">
+            <div class="min-w-0">
+              <div class="text-xs font-bold text-txt-title truncate" title="${authorName}">${authorName}</div>
+              <div class="text-[10px] text-txt-sub truncate font-mono">${reactions.toLocaleString()} rx • #${targetId}</div>
+            </div>
+          </div>
+          <button onclick="removePostFromComparison(${targetId})" title="Gỡ khỏi đối chiếu" class="p-1 rounded-lg text-txt-sub hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+          </button>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Populate Add Post Select Dropdown
+  const selectEl = document.getElementById('compAddPostSelect');
+  if (selectEl) {
+    const unselected = compAvailableTargetsCache.filter(t => !selectedComparisonIds.includes(t.id));
+    if (selectedComparisonIds.length >= 4) {
+      selectEl.disabled = true;
+      selectEl.innerHTML = '<option value="">+ Đã chọn tối đa 4 bài viết</option>';
+    } else if (unselected.length === 0) {
+      selectEl.disabled = true;
+      selectEl.innerHTML = '<option value="">+ Không còn bài viết khả dụng</option>';
+    } else {
+      selectEl.disabled = false;
+      selectEl.innerHTML = '<option value="">+ Thêm bài viết vào đối chiếu...</option>' + unselected.map(t => `
+        <option value="${t.id}">${t.author_name || 'Post #' + t.id} (${(t.latest_reactions || 0).toLocaleString()} rx)</option>
+      `).join('');
     }
+  }
+
+  // Toggle warning banner
+  const banner = document.getElementById('compInsufficientBanner');
+  const content = document.getElementById('compAnalyticsContent');
+  if (selectedComparisonIds.length < 2) {
+    if (banner) banner.classList.remove('hidden');
+    if (content) content.classList.add('hidden');
+  } else {
+    if (banner) banner.classList.add('hidden');
+    if (content) content.classList.remove('hidden');
+  }
+}
+
+function handleAddPostSelect(selectEl) {
+  if (!selectEl || !selectEl.value) return;
+  const id = parseInt(selectEl.value, 10);
+  if (id && !selectedComparisonIds.includes(id) && selectedComparisonIds.length < 4) {
+    selectedComparisonIds.push(id);
+    renderComparisonSelector();
+    fetchAndRenderComparison();
+  }
+  selectEl.value = '';
+}
+
+function removePostFromComparison(targetId) {
+  selectedComparisonIds = selectedComparisonIds.filter(id => id !== targetId);
+  renderComparisonSelector();
+  if (selectedComparisonIds.length >= 2) {
+    fetchAndRenderComparison();
+  }
+}
+
+function addPostToComparisonAndNavigate(targetId) {
+  if (!selectedComparisonIds.includes(targetId)) {
+    if (selectedComparisonIds.length >= 4) {
+      selectedComparisonIds[3] = targetId;
+    } else {
+      selectedComparisonIds.push(targetId);
+    }
+  }
+  switchTab('comparison');
+}
+
+function setComparisonRange(range) {
+  currentComparisonRange = range;
+  document.querySelectorAll('.comp-range-btn').forEach(btn => {
+    if (btn.getAttribute('data-range') === range) {
+      btn.className = 'comp-range-btn px-2.5 py-1 rounded-lg font-medium transition bg-brand-blue text-white shadow-sm';
+    } else {
+      btn.className = 'comp-range-btn px-2.5 py-1 rounded-lg font-medium transition text-txt-sub hover:text-txt-title';
+    }
+  });
+  fetchAndRenderComparison();
+}
+
+function setComparisonMode(mode) {
+  currentComparisonMode = mode;
+  const btnAbs = document.getElementById('btnCompModeAbsolute');
+  const btnAge = document.getElementById('btnCompModeAge');
+  const subtitle = document.getElementById('compGrowthSubtitle');
+
+  if (mode === 'POST_AGE') {
+    if (btnAge) btnAge.className = 'px-3 py-1.5 rounded-lg font-medium transition cursor-pointer bg-brand-blue text-white shadow-sm';
+    if (btnAbs) btnAbs.className = 'px-3 py-1.5 rounded-lg font-medium transition cursor-pointer text-txt-sub hover:text-txt-title';
+    if (subtitle) subtitle.textContent = 'Đường cong tích lũy theo tuổi bài viết (T+0h, T+1h...)';
+  } else {
+    if (btnAbs) btnAbs.className = 'px-3 py-1.5 rounded-lg font-medium transition cursor-pointer bg-brand-blue text-white shadow-sm';
+    if (btnAge) btnAge.className = 'px-3 py-1.5 rounded-lg font-medium transition cursor-pointer text-txt-sub hover:text-txt-title';
+    if (subtitle) subtitle.textContent = 'Đường cong tích lũy theo thời gian thực (Giờ:Phút)';
+  }
+
+  fetchAndRenderComparison();
+}
+
+async function refreshComparison() {
+  const spinner = document.getElementById('compRefreshSpinner');
+  if (spinner) spinner.classList.add('animate-spin');
+  try {
+    await fetchAndRenderComparison();
+  } finally {
+    if (spinner) spinner.classList.remove('animate-spin');
+  }
+}
+
+async function fetchAndRenderComparison() {
+  if (selectedComparisonIds.length < 2) {
+    const banner = document.getElementById('compInsufficientBanner');
+    const content = document.getElementById('compAnalyticsContent');
+    if (banner) banner.classList.remove('hidden');
+    if (content) content.classList.add('hidden');
     return;
   }
 
   try {
-    const res = await fetch(`/api/comparison?ids=${selected.join(',')}`);
+    const query = `/api/comparison?ids=${selectedComparisonIds.join(',')}&range=${currentComparisonRange}&mode=${currentComparisonMode}`;
+    const res = await fetch(query);
     const data = await res.json();
-    const canvas = document.getElementById('comparisonChart');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const theme = getThemeChartColors();
+    comparisonAnalyticsCache = data;
 
-    if (!data.comparison || data.comparison.length === 0) {
-      if (comparisonChartInstance) {
-        comparisonChartInstance.destroy();
-        comparisonChartInstance = null;
-      }
+    const banner = document.getElementById('compInsufficientBanner');
+    const content = document.getElementById('compAnalyticsContent');
+
+    if (data.status === 'INSUFFICIENT_POSTS') {
+      if (banner) banner.classList.remove('hidden');
+      if (content) content.classList.add('hidden');
       return;
     }
 
-    // Collect all timestamps across all selected targets
-    const allTimestamps = Array.from(new Set(
-      data.comparison.flatMap(c => (c.points || []).map(p => p.observed_at))
-    )).sort();
+    if (banner) banner.classList.add('hidden');
+    if (content) content.classList.remove('hidden');
 
-    if (allTimestamps.length === 0) {
-      allTimestamps.push(new Date().toISOString());
+    const theme = getThemeChartColors();
+
+    // 1. COMPONENT 8: Rule-Based Insights
+    const insightsEl = document.getElementById('compInsightsList');
+    if (insightsEl) {
+      if (!data.insights || data.insights.length === 0) {
+        insightsEl.innerHTML = '<div class="text-xs text-txt-sub italic">Chưa đủ dữ liệu để hình thành nhận xét đối chiếu tự động.</div>';
+      } else {
+        insightsEl.innerHTML = data.insights.map(ins => `
+          <div class="flex items-start gap-2.5 p-2 rounded-lg bg-surface-elevated/50 border border-surface-border">
+            <span class="w-1.5 h-1.5 rounded-full bg-brand-cyan mt-1.5 flex-shrink-0"></span>
+            <span class="leading-relaxed font-normal">${ins}</span>
+          </div>
+        `).join('');
+      }
     }
 
-    const labels = allTimestamps.map(t => new Date(t).toLocaleTimeString('vi-VN'));
-    const palette = ['#38C6FF', '#0078A8', '#10B981', '#F59E0B', '#EC4899', '#8B5CF6'];
+    // 2. COMPONENT 1: Engagement Summary Table
+    const engTbody = document.getElementById('compEngagementTableBody');
+    if (engTbody && data.engagement) {
+      const leaderId = [...data.engagement].sort((a, b) => b.totalEngagement - a.totalEngagement)[0]?.targetId;
+      engTbody.innerHTML = data.engagement.map(e => {
+        const isLeader = e.targetId === leaderId;
+        const deltaTotal = e.delta?.total || 0;
+        const changePct = e.changePercent || 0;
+        const pctClass = changePct > 0 ? 'text-emerald-400' : 'text-txt-sub';
 
-    const datasets = data.comparison.map((item, idx) => {
-      const pointMap = new Map((item.points || []).map(p => [p.observed_at, p.total_reactions]));
-      let lastVal = item.target.latest_reactions || 0;
-      const dataValues = allTimestamps.map(t => {
-        if (pointMap.has(t)) {
-          lastVal = pointMap.get(t);
-        }
-        return lastVal;
+        return `
+          <tr class="hover:bg-surface-elevated/40 transition">
+            <td class="p-3.5">
+              <div class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color: ${e.color}"></span>
+                <span class="font-bold text-txt-title truncate max-w-[200px]" title="${e.authorName}">${e.authorName}</span>
+                ${isLeader ? '<span class="text-xs" title="Dẫn đầu tương tác">👑</span>' : ''}
+              </div>
+            </td>
+            <td class="p-3.5 text-right font-mono font-bold text-txt-title">${e.totalEngagement.toLocaleString()}</td>
+            <td class="p-3.5 text-right font-mono text-txt-body">${e.reactions.toLocaleString()}</td>
+            <td class="p-3.5 text-right font-mono text-txt-body">${e.comments.toLocaleString()}</td>
+            <td class="p-3.5 text-right font-mono text-txt-body">${e.shares.toLocaleString()}</td>
+            <td class="p-3.5 text-right font-mono font-semibold text-brand-cyan">+${deltaTotal.toLocaleString()}</td>
+            <td class="p-3.5 text-right font-mono font-bold ${pctClass}">+${changePct}%</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // 3. COMPONENT 3: Growth Curves Chart & KPI Chips
+    const growthCanvas = document.getElementById('compGrowthChartCanvas');
+    if (growthCanvas && data.growthSeries && data.growthSeries.length > 0) {
+      if (compGrowthChartInstance) {
+        compGrowthChartInstance.destroy();
+        compGrowthChartInstance = null;
+      }
+
+      // Collect all distinct labels across targets
+      const allLabels = Array.from(new Set(data.growthSeries.flatMap(g => g.points.map(p => p.label))));
+      const growthDatasets = data.growthSeries.map(g => {
+        const ptMap = new Map(g.points.map(p => [p.label, p.totalEngagement]));
+        let lastVal = g.points[0]?.totalEngagement || 0;
+        const vals = allLabels.map(lbl => {
+          if (ptMap.has(lbl)) lastVal = ptMap.get(lbl);
+          return lastVal;
+        });
+
+        return {
+          label: g.authorName,
+          data: vals,
+          borderColor: g.color,
+          backgroundColor: g.color,
+          tension: 0.3,
+          pointRadius: vals.length > 25 ? 2 : 4,
+          pointHoverRadius: 6,
+          borderWidth: 2,
+          fill: false
+        };
       });
 
-      const color = palette[idx % palette.length];
-      return {
-        label: item.target.author_name || `Target #${item.target.id}`,
-        data: dataValues,
-        borderColor: color,
-        backgroundColor: color,
-        tension: 0.3,
-        fill: false,
-        pointRadius: 4,
-        pointHoverRadius: 6
-      };
-    });
+      const ctxGrowth = growthCanvas.getContext('2d');
+      compGrowthChartInstance = new Chart(ctxGrowth, {
+        type: 'line',
+        data: { labels: allLabels, datasets: growthDatasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              labels: { color: theme.textColor, font: { size: 11, weight: '500' } }
+            },
+            tooltip: { mode: 'index', intersect: false }
+          },
+          scales: {
+            x: { ticks: { color: theme.subColor, font: { size: 10 } }, grid: { display: false } },
+            y: { ticks: { color: theme.subColor, font: { size: 10 } }, grid: { color: theme.gridColor } }
+          }
+        }
+      });
 
-    if (comparisonChartInstance) {
-      comparisonChartInstance.destroy();
+      // Growth KPI Chips
+      const kpisEl = document.getElementById('compGrowthKpis');
+      if (kpisEl) {
+        kpisEl.innerHTML = data.growthSeries.map(g => `
+          <div class="p-2.5 rounded-xl bg-surface-elevated/40 border border-surface-border space-y-1">
+            <div class="flex items-center gap-1.5 text-xs font-semibold text-txt-title truncate">
+              <span class="w-2 h-2 rounded-full" style="background-color: ${g.color}"></span>
+              <span class="truncate">${g.authorName}</span>
+            </div>
+            <div class="text-[11px] text-txt-sub flex justify-between">
+              <span>Đỉnh bứt phá:</span>
+              <span class="font-mono font-bold text-brand-cyan">+${g.peakDelta.toLocaleString()}</span>
+            </div>
+            <div class="text-[11px] text-txt-sub flex justify-between">
+              <span>Vận tốc TB:</span>
+              <span class="font-mono font-semibold text-txt-title">+${g.growthRatePerHour}/h</span>
+            </div>
+            <div class="text-[11px] text-txt-sub flex justify-between">
+              <span>Độ biến động (SD):</span>
+              <span class="font-mono text-txt-sub">±${g.volatility}</span>
+            </div>
+          </div>
+        `).join('');
+      }
     }
 
-    comparisonChartInstance = new Chart(ctx, {
-      type: 'line',
-      data: { labels, datasets },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            labels: { color: theme.textColor, font: { size: 12, weight: '500' } }
-          },
-          tooltip: {
-            mode: 'index',
-            intersect: false
-          }
-        },
-        scales: {
-          x: { ticks: { color: theme.subColor, font: { size: 10 } }, grid: { display: false } },
-          y: { ticks: { color: theme.subColor, font: { size: 10 } }, grid: { color: theme.gridColor } }
-        }
+    // 4. COMPONENT 4: Time Distribution / Bucket Chart
+    const bucketCanvas = document.getElementById('compTimeBucketChartCanvas');
+    if (bucketCanvas && data.timeBuckets && data.targets) {
+      if (compTimeBucketChartInstance) {
+        compTimeBucketChartInstance.destroy();
+        compTimeBucketChartInstance = null;
       }
+
+      const bucketLabels = data.timeBuckets.map(b => b.bucketLabel);
+      const bucketDatasets = data.targets.map(t => ({
+        label: t.authorName,
+        data: data.timeBuckets.map(b => b.targets[String(t.id)] || 0),
+        backgroundColor: t.color,
+        borderRadius: 4
+      }));
+
+      const ctxBucket = bucketCanvas.getContext('2d');
+      compTimeBucketChartInstance = new Chart(ctxBucket, {
+        type: 'bar',
+        data: { labels: bucketLabels, datasets: bucketDatasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              labels: { color: theme.textColor, font: { size: 10, weight: '500' } }
+            },
+            tooltip: { mode: 'index', intersect: false }
+          },
+          scales: {
+            x: { ticks: { color: theme.subColor, font: { size: 9 } }, grid: { display: false } },
+            y: { ticks: { color: theme.subColor, font: { size: 9 } }, grid: { color: theme.gridColor } }
+          }
+        }
+      });
+    }
+
+    // 5. COMPONENT 2: 7 Reactions Bar Chart & Table
+    const rxCanvas = document.getElementById('compReactionsBarChartCanvas');
+    if (rxCanvas && data.reactionsBreakdown) {
+      if (compReactionsChartInstance) {
+        compReactionsChartInstance.destroy();
+        compReactionsChartInstance = null;
+      }
+
+      const rxLabels = ['Like (Thích)', 'Love (Yêu)', 'Care (Thương)', 'Haha', 'Wow', 'Sad (Buồn)', 'Angry (Phẫn nộ)'];
+      const rxDatasets = data.reactionsBreakdown.map(r => ({
+        label: r.authorName,
+        data: [
+          r.counts.like,
+          r.counts.love,
+          r.counts.care,
+          r.counts.haha,
+          r.counts.wow,
+          r.counts.sad,
+          r.counts.angry
+        ],
+        backgroundColor: r.color,
+        borderRadius: 4
+      }));
+
+      const ctxRx = rxCanvas.getContext('2d');
+      compReactionsChartInstance = new Chart(ctxRx, {
+        type: 'bar',
+        data: { labels: rxLabels, datasets: rxDatasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { labels: { color: theme.textColor, font: { size: 11, weight: '500' } } }
+          },
+          scales: {
+            x: { ticks: { color: theme.subColor, font: { size: 10 } }, grid: { display: false } },
+            y: { ticks: { color: theme.subColor, font: { size: 10 } }, grid: { color: theme.gridColor } }
+          }
+        }
+      });
+
+      // 7 Reactions Table
+      const rxTbody = document.getElementById('compReactionsTableBody');
+      if (rxTbody) {
+        rxTbody.innerHTML = data.reactionsBreakdown.map(r => `
+          <tr class="hover:bg-surface-elevated/40 transition">
+            <td class="p-3">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full" style="background-color: ${r.color}"></span>
+                <span class="font-bold text-txt-title truncate max-w-[150px]" title="${r.authorName}">${r.authorName}</span>
+              </div>
+            </td>
+            <td class="p-3 text-center font-mono">${r.counts.like.toLocaleString()} <span class="text-[10px] text-txt-sub font-sans">(${r.percentages.like}%)</span></td>
+            <td class="p-3 text-center font-mono">${r.counts.love.toLocaleString()} <span class="text-[10px] text-txt-sub font-sans">(${r.percentages.love}%)</span></td>
+            <td class="p-3 text-center font-mono">${r.counts.care.toLocaleString()} <span class="text-[10px] text-txt-sub font-sans">(${r.percentages.care}%)</span></td>
+            <td class="p-3 text-center font-mono">${r.counts.haha.toLocaleString()} <span class="text-[10px] text-txt-sub font-sans">(${r.percentages.haha}%)</span></td>
+            <td class="p-3 text-center font-mono">${r.counts.wow.toLocaleString()} <span class="text-[10px] text-txt-sub font-sans">(${r.percentages.wow}%)</span></td>
+            <td class="p-3 text-center font-mono">${r.counts.sad.toLocaleString()} <span class="text-[10px] text-txt-sub font-sans">(${r.percentages.sad}%)</span></td>
+            <td class="p-3 text-center font-mono">${r.counts.angry.toLocaleString()} <span class="text-[10px] text-txt-sub font-sans">(${r.percentages.angry}%)</span></td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    // 6. COMPONENT 7: Performance Grid
+    const perfGrid = document.getElementById('compPerformanceGrid');
+    if (perfGrid && data.performance) {
+      perfGrid.innerHTML = data.performance.map(p => `
+        <div class="p-3.5 rounded-xl bg-surface-elevated/40 border border-surface-border space-y-2 relative overflow-hidden">
+          <div class="w-1 absolute left-0 top-0 bottom-0" style="background-color: ${p.color}"></div>
+          <div class="font-bold text-xs text-txt-title truncate pl-1" title="${p.authorName}">${p.authorName}</div>
+          <div class="space-y-1.5 text-xs text-txt-sub pl-1">
+            <div class="flex justify-between">
+              <span>Tỷ lệ Bình luận / Cảm xúc:</span>
+              <span class="font-mono font-bold text-txt-title">${p.commentRatio}%</span>
+            </div>
+            <div class="flex justify-between">
+              <span>Tỷ lệ Chia sẻ / Cảm xúc:</span>
+              <span class="font-mono font-bold text-txt-title">${p.shareRatio}%</span>
+            </div>
+            <div class="flex justify-between">
+              <span>Vận tốc tương tác TB:</span>
+              <span class="font-mono font-semibold text-brand-cyan">+${p.velocityPerHour}/h</span>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // 7. COMPONENT 5: Authenticity Grid
+    const authGrid = document.getElementById('compAuthenticityGrid');
+    if (authGrid && data.authenticity) {
+      authGrid.innerHTML = data.authenticity.map(a => {
+        let badgeClass = 'bg-slate-500/10 text-slate-300 border-slate-500/30';
+        let badgeLabel = 'Chưa đủ mẫu';
+        if (a.verdict === 'ORGANIC') {
+          badgeClass = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
+          badgeLabel = 'Tự nhiên (Organic)';
+        } else if (a.verdict === 'SUSPICIOUS') {
+          badgeClass = 'bg-rose-500/10 text-rose-400 border-rose-500/30';
+          badgeLabel = 'Bất thường (Suspicious)';
+        }
+
+        return `
+          <div class="p-3.5 rounded-xl bg-surface-elevated/40 border border-surface-border space-y-2 relative overflow-hidden">
+            <div class="w-1 absolute left-0 top-0 bottom-0" style="background-color: ${a.color}"></div>
+            <div class="flex items-center justify-between gap-2 pl-1">
+              <span class="font-bold text-xs text-txt-title truncate" title="${a.authorName}">${a.authorName}</span>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold border ${badgeClass}">${badgeLabel}</span>
+            </div>
+            <div class="text-[11px] text-txt-body leading-relaxed pl-1">${a.explanation}</div>
+            <div class="flex items-center gap-4 text-[10px] text-txt-sub pl-1 font-mono">
+              <span>Mẫu nhận diện: <b>${a.totalIdentified}</b></span>
+              <span>Cmt trùng lặp: <b class="${a.suspiciousComments > 0 ? 'text-rose-400' : ''}">${a.suspiciousComments}</b></span>
+              <span>Cảnh báo: <b>${a.alertCount}</b></span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // 8. COMPONENT 6: Interaction Accounts Overlap & Common Accounts
+    const pairsGrid = document.getElementById('compJaccardPairsGrid');
+    if (pairsGrid && data.accountOverlap?.pairs) {
+      if (data.accountOverlap.pairs.length === 0) {
+        pairsGrid.innerHTML = '<div class="col-span-full text-xs text-txt-sub italic p-3 text-center">Không đủ cặp bài viết để tính chỉ số trùng lặp.</div>';
+      } else {
+        pairsGrid.innerHTML = data.accountOverlap.pairs.map(pair => `
+          <div class="p-3.5 rounded-xl bg-surface-elevated/40 border border-surface-border space-y-2">
+            <div class="flex items-center justify-between text-xs font-semibold text-txt-title">
+              <span class="truncate max-w-[100px]" style="color: ${pair.colorA}">${pair.targetAName}</span>
+              <span class="text-txt-sub px-1">↔</span>
+              <span class="truncate max-w-[100px]" style="color: ${pair.colorB}">${pair.targetBName}</span>
+            </div>
+            <div class="flex items-center justify-between pt-1 border-t border-surface-border/50">
+              <span class="text-xs text-txt-sub">Trùng lặp Jaccard:</span>
+              <span class="text-sm font-mono font-bold text-brand-cyan">${pair.jaccardPercent}%</span>
+            </div>
+            <div class="text-[10px] text-txt-sub flex justify-between font-mono">
+              <span>Giao nhau (A ∩ B): <b>${pair.intersectionCount}</b></span>
+              <span>Hợp nhất (A ∪ B): <b>${pair.unionCount}</b></span>
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+
+    // Common Accounts Table
+    const commonAccountsBadge = document.getElementById('compCommonAccountsBadge');
+    const commonAccountsTbody = document.getElementById('compCommonAccountsTableBody');
+    const commonList = data.accountOverlap?.commonAccounts || [];
+
+    if (commonAccountsBadge) {
+      commonAccountsBadge.textContent = `${commonList.length} tài khoản`;
+    }
+
+    if (commonAccountsTbody) {
+      if (commonList.length === 0) {
+        commonAccountsTbody.innerHTML = `
+          <tr>
+            <td colspan="4" class="p-6 text-center text-txt-sub text-xs italic">
+              Không có tài khoản nào xuất hiện đồng thời giữa các bài viết trong tập mẫu dữ liệu thu nhận.
+            </td>
+          </tr>
+        `;
+      } else {
+        commonAccountsTbody.innerHTML = commonList.map(acc => {
+          const avatar = acc.avatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=80&auto=format&fit=crop&q=60';
+          const postsBadge = (acc.posts || []).map(p => `
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface border border-surface-border text-[10px] font-medium text-txt-body">
+              <span>${p.authorName}</span>
+            </span>
+          `).join(' ');
+
+          const actionsSummary = (acc.posts || []).map(p => {
+            const rxType = p.reactionType ? `<span class="text-brand-cyan font-bold">${p.reactionType}</span>` : '';
+            const cmtText = p.commentText ? `"${p.commentText.slice(0, 30)}..."` : '';
+            return `${p.interactionType || 'INTERACTION'}: ${rxType} ${cmtText}`;
+          }).join(' • ');
+
+          const profileBtn = acc.profileUrl
+            ? `<a href="${acc.profileUrl}" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 bg-brand-blue/30 hover:bg-brand-blue text-brand-cyan hover:text-white rounded-lg text-[10px] font-semibold transition border border-brand-cyan/30 inline-flex items-center gap-1">
+                <span>Trang cá nhân</span>
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+               </a>`
+            : '<span class="text-[10px] text-txt-sub">Ẩn danh</span>';
+
+          return `
+            <tr class="hover:bg-surface-elevated/40 transition">
+              <td class="p-3">
+                <div class="flex items-center gap-2">
+                  <img src="${avatar}" alt="" class="w-6 h-6 rounded-full border border-surface-border object-cover flex-shrink-0" onerror="this.src='https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=80&auto=format&fit=crop&q=60'">
+                  <div>
+                    <div class="font-bold text-txt-title truncate max-w-[120px]">${acc.displayName || 'FB User'}</div>
+                    <div class="text-[9px] text-txt-sub font-mono">${acc.fbUserId || 'ID N/A'}</div>
+                  </div>
+                </div>
+              </td>
+              <td class="p-3">${postsBadge}</td>
+              <td class="p-3 text-[11px] text-txt-body max-w-[200px] truncate" title="${actionsSummary}">${actionsSummary}</td>
+              <td class="p-3 text-right">${profileBtn}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+    }
+
+  } catch (err) {
+    console.error('Lỗi tải dữ liệu đối chiếu so sánh:', err);
+  }
+}
+
+// Backwards-compatibility alias
+function renderComparison() {
+  return fetchAndRenderComparison();
+}
+
+function toggleCompExportMenu() {
+  const menu = document.getElementById('compExportDropdown');
+  if (menu) menu.classList.toggle('hidden');
+}
+
+// Dismiss export menu when clicking outside
+window.addEventListener('click', (e) => {
+  const container = document.getElementById('compExportMenuContainer');
+  const dropdown = document.getElementById('compExportDropdown');
+  if (container && dropdown && !container.contains(e.target)) {
+    dropdown.classList.add('hidden');
+  }
+});
+
+function exportComparisonReport(format) {
+  const dropdown = document.getElementById('compExportDropdown');
+  if (dropdown) dropdown.classList.add('hidden');
+
+  if (!comparisonAnalyticsCache || !comparisonAnalyticsCache.targets) {
+    showNoticeModal({
+      title: 'Không có dữ liệu xuất',
+      message: 'Vui lòng chọn ít nhất 2 bài viết để tạo dữ liệu đối chiếu trước khi xuất báo cáo.',
+      type: 'warning'
     });
-  } catch (e) {
-    console.error('Lỗi tải biểu đồ so sánh:', e);
+    return;
+  }
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+
+  if (format === 'json') {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(comparisonAnalyticsCache, null, 2));
+    const dlAnchor = document.createElement('a');
+    dlAnchor.setAttribute("href", dataStr);
+    dlAnchor.setAttribute("download", `NHN_Telemetry_Comparison_${timestamp}.json`);
+    document.body.appendChild(dlAnchor);
+    dlAnchor.click();
+    dlAnchor.remove();
+  } else if (format === 'csv') {
+    const headers = [
+      'Post ID', 'Author', 'Target Type', 'Total Engagement', 'Reactions', 'Comments', 'Shares',
+      'Period Delta Total', 'Change %', 'Like', 'Love', 'Care', 'Haha', 'Wow', 'Sad', 'Angry',
+      'Comment Ratio %', 'Share Ratio %', 'Velocity / hr', 'Authenticity Verdict'
+    ];
+
+    const rows = (comparisonAnalyticsCache.targets || []).map(t => {
+      const eng = comparisonAnalyticsCache.engagement?.find(e => e.targetId === t.id) || {};
+      const rx = comparisonAnalyticsCache.reactionsBreakdown?.find(r => r.targetId === t.id) || { counts: {} };
+      const perf = comparisonAnalyticsCache.performance?.find(p => p.targetId === t.id) || {};
+      const auth = comparisonAnalyticsCache.authenticity?.find(a => a.targetId === t.id) || {};
+
+      return [
+        t.id,
+        `"${(t.authorName || '').replace(/"/g, '""')}"`,
+        t.targetType || 'POST',
+        eng.totalEngagement || 0,
+        eng.reactions || 0,
+        eng.comments || 0,
+        eng.shares || 0,
+        eng.delta?.total || 0,
+        eng.changePercent || 0,
+        rx.counts?.like || 0,
+        rx.counts?.love || 0,
+        rx.counts?.care || 0,
+        rx.counts?.haha || 0,
+        rx.counts?.wow || 0,
+        rx.counts?.sad || 0,
+        rx.counts?.angry || 0,
+        perf.commentRatio || 0,
+        perf.shareRatio || 0,
+        perf.velocityPerHour || 0,
+        `"${auth.verdict || 'UNKNOWN'}"`
+      ].join(',');
+    });
+
+    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + [headers.join(','), ...rows].join('\n');
+    const dlAnchor = document.createElement('a');
+    dlAnchor.setAttribute("href", encodeURI(csvContent));
+    dlAnchor.setAttribute("download", `NHN_Telemetry_Comparison_${timestamp}.csv`);
+    document.body.appendChild(dlAnchor);
+    dlAnchor.click();
+    dlAnchor.remove();
+  } else if (format === 'print') {
+    window.print();
   }
 }

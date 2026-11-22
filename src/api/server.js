@@ -8,6 +8,7 @@ const accountManager = require('../auth/accountManager');
 const alertEngine = require('../analytics/alertEngine');
 const monitorScheduler = require('../scheduler/monitorScheduler');
 const config = require('../config');
+const { computeComparisonAnalytics } = require('../analytics/comparisonEngine');
 
 function createServer() {
   const app = express();
@@ -814,24 +815,126 @@ function createServer() {
     res.json({ success: true });
   });
 
-  // 11. Multi-Target Comparison (Section 7)
+  // 11. Multi-Target Comparison (Section 7 - Prompt 04)
   app.get('/api/comparison', (req, res) => {
-    const ids = (req.query.ids || '').split(',').map(n => parseInt(n, 10)).filter(Boolean);
-    if (ids.length === 0) return res.json({ series: [] });
+    const ids = (req.query.ids || '').split(',').map(n => parseInt(n, 10)).filter(Boolean).slice(0, 4);
+    const rangeParam = req.query.range || '24H';
+    const modeParam = req.query.mode || 'ABSOLUTE_TIME';
 
-    const results = ids.map(id => {
-      const target = db.prepare('SELECT id, author_name, normalized_url, target_type FROM monitored_targets WHERE id = ?').get(id);
-      const points = db.prepare(`
-        SELECT observed_at, total_reactions, total_comments, total_shares 
-        FROM snapshots 
-        WHERE target_id = ? 
-        ORDER BY observed_at ASC 
+    if (ids.length < 2) {
+      return res.json({
+        status: 'INSUFFICIENT_POSTS',
+        message: 'Cần chọn từ 2 đến 4 bài viết để thực hiện đối chiếu hiệu suất so sánh.',
+        comparison: [],
+        targets: [],
+        engagement: [],
+        reactionsBreakdown: [],
+        growthSeries: [],
+        timeBuckets: [],
+        authenticity: [],
+        accountOverlap: { pairs: [], commonAccounts: [] },
+        performance: [],
+        insights: []
+      });
+    }
+
+    const rangeMsMap = {
+      '5M': 5 * 60 * 1000,
+      '15M': 15 * 60 * 1000,
+      '30M': 30 * 60 * 1000,
+      '1H': 60 * 60 * 1000,
+      '3H': 3 * 3600 * 1000,
+      '6H': 6 * 3600 * 1000,
+      '12H': 12 * 3600 * 1000,
+      '24H': 24 * 3600 * 1000,
+      '7D': 7 * 24 * 3600 * 1000,
+      '30D': 30 * 24 * 3600 * 1000
+    };
+    const durationMs = rangeMsMap[rangeParam] || (24 * 3600 * 1000);
+    const cutoffTime = new Date(Date.now() - durationMs).toISOString();
+
+    const targets = [];
+    const snapshotsByTarget = {};
+    const accountsByTarget = {};
+    const alertsByTarget = {};
+    const legacyComparison = [];
+
+    for (const id of ids) {
+      const target = db.prepare('SELECT * FROM monitored_targets WHERE id = ?').get(id);
+      if (!target) continue;
+      targets.push(target);
+
+      // Snapshots in cutoff
+      let snaps = db.prepare(`
+        SELECT observed_at, total_reactions, total_comments, total_shares,
+               delta_reactions, delta_comments, delta_shares,
+               like_count, love_count, care_count, haha_count, wow_count, sad_count, angry_count
+        FROM snapshots
+        WHERE target_id = ? AND observed_at >= ?
+        ORDER BY observed_at ASC
+        LIMIT 200
+      `).all(id, cutoffTime) || [];
+
+      if (snaps.length === 0) {
+        const lastSnap = db.prepare(`
+          SELECT observed_at, total_reactions, total_comments, total_shares,
+                 delta_reactions, delta_comments, delta_shares,
+                 like_count, love_count, care_count, haha_count, wow_count, sad_count, angry_count
+          FROM snapshots WHERE target_id = ? ORDER BY observed_at DESC LIMIT 1
+        `).get(id);
+
+        if (lastSnap) {
+          snaps = [lastSnap];
+        } else {
+          snaps = [{
+            observed_at: target.last_checked_at || new Date().toISOString(),
+            total_reactions: target.latest_reactions || 0,
+            total_comments: target.latest_comments || 0,
+            total_shares: target.latest_shares || 0,
+            delta_reactions: 0, delta_comments: 0, delta_shares: 0,
+            like_count: target.latest_reactions || 0,
+            love_count: 0, care_count: 0, haha_count: 0, wow_count: 0, sad_count: 0, angry_count: 0
+          }];
+        }
+      }
+
+      snapshotsByTarget[id] = snaps;
+      legacyComparison.push({ target, points: snaps });
+
+      // Accounts
+      const accounts = db.prepare(`
+        SELECT target_id, fb_user_id, display_name, profile_url, avatar_url, interaction_type, reaction_type, comment_text, observed_at
+        FROM accounts_interacted
+        WHERE target_id = ?
+        ORDER BY observed_at DESC
+        LIMIT 100
+      `).all(id) || [];
+      accountsByTarget[id] = accounts;
+
+      // Alerts
+      const alerts = db.prepare(`
+        SELECT id, target_id, alert_type, severity, message, delta, detected_at, acknowledged
+        FROM alerts
+        WHERE target_id = ? AND detected_at >= ?
+        ORDER BY detected_at DESC
         LIMIT 50
-      `).all(id);
-      return { target, points };
+      `).all(id, cutoffTime) || [];
+      alertsByTarget[id] = alerts;
+    }
+
+    const analytics = computeComparisonAnalytics({
+      targets,
+      snapshotsByTarget,
+      accountsByTarget,
+      alertsByTarget,
+      range: rangeParam,
+      mode: modeParam
     });
 
-    res.json({ comparison: results });
+    res.json({
+      ...analytics,
+      comparison: legacyComparison
+    });
   });
 
   // 12. System Health & Operational Status (Section 9)

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { parseBatchUrls, normalizeUrl, analyzeUrl } from './analyzer/urlAnalyzer.js';
 import { extractCUser, isCheckpointOrLogin, parseMbasicHtml, parseMbasicReactionsBreakdown, parseMbasicReactors } from './collector/mbasicCollector.js';
 import { parseBatchProxies, parseProxyString } from './collector/proxyHelper.js';
+import { computeComparisonAnalytics } from './analytics/comparisonEngine.js';
 
 // --- Crypto Utilities (AES-256-GCM) ---
 const ALGORITHM = 'aes-256-gcm';
@@ -631,38 +632,127 @@ async function handleApiRoute(pathname, method, request, env, url) {
     return jsonResponse({ success: true, count: targets.length, results });
   }
 
-  // GET /api/comparison (So sánh tương tác đa nội dung)
+  // GET /api/comparison (So sánh tương tác đối chiếu 2-4 nội dung - Prompt 04)
   if (pathname === '/api/comparison' && method === 'GET') {
     const idsParam = url.searchParams.get('ids') || '';
-    const ids = idsParam.split(',').map(n => parseInt(n.trim(), 10)).filter(Boolean);
-    if (ids.length === 0) return jsonResponse({ comparison: [] });
+    const ids = idsParam.split(',').map(n => parseInt(n.trim(), 10)).filter(Boolean).slice(0, 4);
+    const rangeParam = url.searchParams.get('range') || '24H';
+    const modeParam = url.searchParams.get('mode') || 'ABSOLUTE_TIME';
 
-    const comparison = [];
-    for (const id of ids) {
-      const target = await db.prepare('SELECT id, author_name, normalized_url, target_type, latest_reactions, latest_comments, latest_shares, last_checked_at FROM monitored_targets WHERE id = ?').bind(id).first();
-      if (!target) continue;
-
-      const points = (await db.prepare(`
-        SELECT observed_at, total_reactions, total_comments, total_shares
-        FROM snapshots
-        WHERE target_id = ?
-        ORDER BY observed_at ASC
-        LIMIT 50
-      `).bind(id).all())?.results || [];
-
-      if (points.length === 0) {
-        points.push({
-          observed_at: target.last_checked_at || new Date().toISOString(),
-          total_reactions: target.latest_reactions || 0,
-          total_comments: target.latest_comments || 0,
-          total_shares: target.latest_shares || 0
-        });
-      }
-
-      comparison.push({ target, points });
+    if (ids.length < 2) {
+      return jsonResponse({
+        status: 'INSUFFICIENT_POSTS',
+        message: 'Cần chọn từ 2 đến 4 bài viết để thực hiện đối chiếu hiệu suất so sánh.',
+        comparison: [],
+        targets: [],
+        engagement: [],
+        reactionsBreakdown: [],
+        growthSeries: [],
+        timeBuckets: [],
+        authenticity: [],
+        accountOverlap: { pairs: [], commonAccounts: [] },
+        performance: [],
+        insights: []
+      });
     }
 
-    return jsonResponse({ comparison });
+    const rangeMsMap = {
+      '5M': 5 * 60 * 1000,
+      '15M': 15 * 60 * 1000,
+      '30M': 30 * 60 * 1000,
+      '1H': 60 * 60 * 1000,
+      '3H': 3 * 3600 * 1000,
+      '6H': 6 * 3600 * 1000,
+      '12H': 12 * 3600 * 1000,
+      '24H': 24 * 3600 * 1000,
+      '7D': 7 * 24 * 3600 * 1000,
+      '30D': 30 * 24 * 3600 * 1000
+    };
+    const durationMs = rangeMsMap[rangeParam] || (24 * 3600 * 1000);
+    const cutoffTime = new Date(Date.now() - durationMs).toISOString();
+
+    const targets = [];
+    const snapshotsByTarget = {};
+    const accountsByTarget = {};
+    const alertsByTarget = {};
+    const legacyComparison = [];
+
+    for (const id of ids) {
+      const target = await db.prepare('SELECT * FROM monitored_targets WHERE id = ?').bind(id).first();
+      if (!target) continue;
+      targets.push(target);
+
+      // Snapshots in cutoff
+      let snaps = (await db.prepare(`
+        SELECT observed_at, total_reactions, total_comments, total_shares,
+               delta_reactions, delta_comments, delta_shares,
+               like_count, love_count, care_count, haha_count, wow_count, sad_count, angry_count
+        FROM snapshots
+        WHERE target_id = ? AND observed_at >= ?
+        ORDER BY observed_at ASC
+        LIMIT 200
+      `).bind(id, cutoffTime).all())?.results || [];
+
+      if (snaps.length === 0) {
+        const lastSnap = await db.prepare(`
+          SELECT observed_at, total_reactions, total_comments, total_shares,
+                 delta_reactions, delta_comments, delta_shares,
+                 like_count, love_count, care_count, haha_count, wow_count, sad_count, angry_count
+          FROM snapshots WHERE target_id = ? ORDER BY observed_at DESC LIMIT 1
+        `).bind(id).first();
+
+        if (lastSnap) {
+          snaps = [lastSnap];
+        } else {
+          snaps = [{
+            observed_at: target.last_checked_at || new Date().toISOString(),
+            total_reactions: target.latest_reactions || 0,
+            total_comments: target.latest_comments || 0,
+            total_shares: target.latest_shares || 0,
+            delta_reactions: 0, delta_comments: 0, delta_shares: 0,
+            like_count: target.latest_reactions || 0,
+            love_count: 0, care_count: 0, haha_count: 0, wow_count: 0, sad_count: 0, angry_count: 0
+          }];
+        }
+      }
+
+      snapshotsByTarget[id] = snaps;
+      legacyComparison.push({ target, points: snaps });
+
+      // Accounts
+      const accounts = (await db.prepare(`
+        SELECT target_id, fb_user_id, display_name, profile_url, avatar_url, interaction_type, reaction_type, comment_text, observed_at
+        FROM accounts_interacted
+        WHERE target_id = ?
+        ORDER BY observed_at DESC
+        LIMIT 100
+      `).bind(id).all())?.results || [];
+      accountsByTarget[id] = accounts;
+
+      // Alerts
+      const alerts = (await db.prepare(`
+        SELECT id, target_id, alert_type, severity, message, delta, detected_at, acknowledged
+        FROM alerts
+        WHERE target_id = ? AND detected_at >= ?
+        ORDER BY detected_at DESC
+        LIMIT 50
+      `).bind(id, cutoffTime).all())?.results || [];
+      alertsByTarget[id] = alerts;
+    }
+
+    const analytics = computeComparisonAnalytics({
+      targets,
+      snapshotsByTarget,
+      accountsByTarget,
+      alertsByTarget,
+      range: rangeParam,
+      mode: modeParam
+    });
+
+    return jsonResponse({
+      ...analytics,
+      comparison: legacyComparison
+    });
   }
 
   // GET /api/accounts

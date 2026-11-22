@@ -184,3 +184,52 @@ input:focus, select:focus, textarea:focus {
 .interactive-hover:active {
   transform: scale(0.98);
 }
+
+/* ========================================================
+   PRINT / PDF EXPORT STYLES (PROMPT 04)
+   ======================================================== */
+@media print {
+  body {
+    background: #FFFFFF !important;
+    color: #0F172A !important;
+    font-size: 14px !important;
+  }
+
+  /* Hide navigation, toolbars, buttons, modals */
+  nav,
+  header,
+  #compExportMenuContainer,
+  #compAddPostContainer,
+  #compRefreshSpinner,
+  .comp-range-btn,
+  #btnCompModeAbsolute,
+  #btnCompModeAge,
+  button,
+  .modal-backdrop,
+  #commercialNoticeModal {
+    display: none !important;
+  }
+
+  /* Make containers print-friendly */
+  .surface-card {
+    background: #FFFFFF !important;
+    border: 1px solid #E2E8F0 !important;
+    box-shadow: none !important;
+    color: #0F172A !important;
+    page-break-inside: avoid;
+  }
+
+  table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+
+  th, td {
+    border: 1px solid #E2E8F0 !important;
+    color: #0F172A !important;
+  }
+
+  #view-comparison {
+    display: block !important;
+  }
+}
