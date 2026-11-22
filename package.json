@@ -1,0 +1,25 @@
+{
+  "name": "cookiefb",
+  "version": "1.0.0",
+  "description": "Nền tảng giám sát và phân tích tương tác Facebook tự động 24/7",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test --test-concurrency=1 tests/*.test.js"
+  },
+  "keywords": [
+    "facebook",
+    "interaction-monitor",
+    "graph-api",
+    "analytics",
+    "24-7-monitoring"
+  ],
+  "author": "c4",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  }
+}

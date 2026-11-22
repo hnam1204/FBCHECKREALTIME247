@@ -1,0 +1,186 @@
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap');
+
+/* ========================================================
+   THEME PALETTE & VARIABLES
+   ======================================================== */
+
+/* Dark Mode (Default) */
+:root, html.dark {
+  --bg-slate-dark: #0F172A;
+  --bg-surface-card: #131E35;
+  --bg-surface-elevated: #172545;
+  
+  --brand-deep-blue: #004E6E;
+  --brand-ocean-blue: #00648E;
+  --brand-blue: #0078A8;
+  --brand-bright-cyan: #38C6FF;
+
+  --text-title: #FFFFFF;
+  --text-body: #CBD5E1;
+  --text-sub: #64748B;
+  --text-muted: #475569;
+
+  /* Interaction Alpha States */
+  --alpha-07: rgba(255, 255, 255, 0.07);
+  --alpha-42: rgba(255, 255, 255, 0.42);
+  --alpha-62: rgba(255, 255, 255, 0.62);
+  --border-card: rgba(255, 255, 255, 0.08);
+  --table-hover: #172545;
+}
+
+/* Light Mode */
+html.light {
+  --bg-slate-dark: #F1F5F9;
+  --bg-surface-card: #FFFFFF;
+  --bg-surface-elevated: #E2E8F0;
+
+  --brand-deep-blue: #004E6E;
+  --brand-ocean-blue: #00648E;
+  --brand-blue: #0078A8;
+  --brand-bright-cyan: #0284C7;
+
+  --text-title: #0F172A;
+  --text-body: #334155;
+  --text-sub: #64748B;
+  --text-muted: #94A3B8;
+
+  --alpha-07: rgba(15, 23, 42, 0.05);
+  --alpha-42: rgba(15, 23, 42, 0.18);
+  --alpha-62: rgba(15, 23, 42, 0.35);
+  --border-card: rgba(15, 23, 42, 0.12);
+  --table-hover: #F8FAFC;
+}
+
+/* ========================================================
+   ROUNDED TYPOGRAPHY STACK & +5PX SCALE
+   ======================================================== */
+html {
+  font-size: 21px; /* Scaled up by +5px (Root 16px -> 21px) */
+  background-color: var(--bg-slate-dark);
+  color: var(--text-body);
+  font-family: ui-rounded, 'SF Pro Rounded', 'Nunito', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--bg-slate-dark);
+  color: var(--text-body);
+  font-family: ui-rounded, 'SF Pro Rounded', 'Nunito', system-ui, -apple-system, sans-serif;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Typography Hierarchy */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text-title);
+  font-family: ui-rounded, 'SF Pro Rounded', 'Nunito', system-ui, -apple-system, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  transition: color 0.2s ease;
+}
+
+input, button, select, textarea {
+  font-family: ui-rounded, 'SF Pro Rounded', 'Nunito', system-ui, -apple-system, sans-serif;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-slate-dark);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--brand-deep-blue);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--brand-ocean-blue);
+}
+
+/* Surface & Border System */
+.surface-card {
+  background-color: var(--bg-surface-card);
+  border: 1px solid var(--border-card);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.surface-card:hover {
+  border-color: rgba(56, 198, 255, 0.35);
+}
+
+.surface-elevated {
+  background-color: var(--bg-surface-elevated);
+  border: 1px solid var(--border-card);
+}
+
+/* Status Badges */
+.status-active {
+  background-color: rgba(56, 198, 255, 0.15);
+  color: var(--brand-bright-cyan);
+  border: 1px solid rgba(56, 198, 255, 0.35);
+}
+
+.status-paused {
+  background-color: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.status-limited {
+  background-color: rgba(0, 120, 168, 0.2);
+  color: #38bdf8;
+  border: 1px solid rgba(0, 120, 168, 0.4);
+}
+
+.status-inaccessible {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+/* Reaction Metrics System */
+.rx-vector-box {
+  background: var(--alpha-07);
+  border: 1px solid var(--border-card);
+  transition: all 0.2s ease;
+}
+
+.rx-vector-box:hover {
+  background: rgba(56, 198, 255, 0.12);
+  border-color: rgba(56, 198, 255, 0.35);
+}
+
+/* Table rows */
+tr:hover {
+  background-color: var(--table-hover);
+}
+
+/* Inputs & Form Controls */
+input, select, textarea {
+  background-color: var(--bg-surface-card) !important;
+  border: 1px solid var(--border-card) !important;
+  color: var(--text-title) !important;
+  border-radius: 0.75rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--brand-bright-cyan) !important;
+  box-shadow: 0 0 0 2px rgba(56, 198, 255, 0.2) !important;
+  outline: none !important;
+}
+
+/* Interactive Hover States */
+.interactive-hover {
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+
+.interactive-hover:hover {
+  background-color: var(--alpha-07);
+}
+
+.interactive-hover:active {
+  transform: scale(0.98);
+}
