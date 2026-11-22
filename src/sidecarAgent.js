@@ -206,9 +206,17 @@ async function runSidecarTick() {
 
         const interactedAccounts = [...(parsed.comments || []), ...reactors];
 
-        // Client Quality Gate: Không bao giờ đẩy snapshot 0 ghi đè lên bài viết có tương tác baseline
-        if ((target.latest_reactions || 0) > 0 && parsed.totalReactions === 0 && parsed.totalComments === 0) {
-          console.warn(`[c4] SIDECAR: [Quality Gate] Target #${target.id} cào ra 0 cảm xúc khi baseline đang là ${target.latest_reactions}. Bỏ qua push để bảo vệ tính toàn vẹn dữ liệu.`);
+        // Client Quality Gate: Không bao giờ đẩy snapshot sụt giảm 0 ghi đè lên bài viết có tương tác baseline
+        const baseRx = target.latest_reactions || 0;
+        const baseCmt = target.latest_comments || 0;
+        const baseSh = target.latest_shares || 0;
+        if (
+          (baseRx > 5 && parsed.totalReactions === 0) ||
+          (baseCmt > 5 && parsed.totalComments === 0) ||
+          (baseSh > 5 && parsed.totalShares === 0) ||
+          ((baseRx > 0 || baseCmt > 0) && parsed.totalReactions === 0 && parsed.totalComments === 0)
+        ) {
+          console.warn(`[c4] SIDECAR: [Quality Gate] Target #${target.id} cào ra 0 tương tác khi baseline đang là (${baseRx} rx, ${baseCmt} cmt). Bỏ qua push để bảo vệ tính toàn vẹn dữ liệu.`);
           continue;
         }
 

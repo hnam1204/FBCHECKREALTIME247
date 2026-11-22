@@ -281,21 +281,21 @@ async function handleApiRoute(pathname, method, request, env, url) {
       ) latest ON s.target_id = latest.target_id AND s.id = latest.max_id
     `).first()) || { like_count: 0, love_count: 0, care_count: 0, haha_count: 0, wow_count: 0, sad_count: 0, angry_count: 0 };
 
-    // Delta in the selected period vs prior period
+    // Delta in the selected period vs prior period (Lọc bỏ các delta âm bất thường và spike rác)
     const periodDelta = (await db.prepare(`
       SELECT 
-        SUM(delta_reactions) as delta_reactions,
-        SUM(delta_comments) as delta_comments,
-        SUM(delta_shares) as delta_shares
+        COALESCE(SUM(CASE WHEN delta_reactions > 0 AND delta_reactions < 2000 THEN delta_reactions ELSE 0 END), 0) as delta_reactions,
+        COALESCE(SUM(CASE WHEN delta_comments > 0 AND delta_comments < 2000 THEN delta_comments ELSE 0 END), 0) as delta_comments,
+        COALESCE(SUM(CASE WHEN delta_shares > 0 AND delta_shares < 2000 THEN delta_shares ELSE 0 END), 0) as delta_shares
       FROM snapshots
       WHERE observed_at >= ?
     `).bind(cutoffTime).first()) || {};
 
     const prevPeriodDelta = (await db.prepare(`
       SELECT 
-        SUM(delta_reactions) as delta_reactions,
-        SUM(delta_comments) as delta_comments,
-        SUM(delta_shares) as delta_shares
+        COALESCE(SUM(CASE WHEN delta_reactions > 0 AND delta_reactions < 2000 THEN delta_reactions ELSE 0 END), 0) as delta_reactions,
+        COALESCE(SUM(CASE WHEN delta_comments > 0 AND delta_comments < 2000 THEN delta_comments ELSE 0 END), 0) as delta_comments,
+        COALESCE(SUM(CASE WHEN delta_shares > 0 AND delta_shares < 2000 THEN delta_shares ELSE 0 END), 0) as delta_shares
       FROM snapshots
       WHERE observed_at >= ? AND observed_at < ?
     `).bind(priorCutoffTime, cutoffTime).first()) || {};
@@ -310,9 +310,9 @@ async function handleApiRoute(pathname, method, request, env, url) {
              SUM(total_reactions) as total_reactions,
              SUM(total_comments) as total_comments,
              SUM(total_shares) as total_shares,
-             SUM(delta_reactions) as delta_reactions,
-             SUM(delta_comments) as delta_comments,
-             SUM(delta_shares) as delta_shares
+             COALESCE(SUM(CASE WHEN delta_reactions > 0 AND delta_reactions < 2000 THEN delta_reactions ELSE 0 END), 0) as delta_reactions,
+             COALESCE(SUM(CASE WHEN delta_comments > 0 AND delta_comments < 2000 THEN delta_comments ELSE 0 END), 0) as delta_comments,
+             COALESCE(SUM(CASE WHEN delta_shares > 0 AND delta_shares < 2000 THEN delta_shares ELSE 0 END), 0) as delta_shares
       FROM snapshots
       WHERE observed_at >= ?
       GROUP BY observed_at
@@ -1009,7 +1009,7 @@ async function handleApiRoute(pathname, method, request, env, url) {
   // GET /api/proxies (Danh sách pool proxy + account đang gán - Bảo mật: mask credentials)
   if (pathname === '/api/proxies' && method === 'GET') {
     const rawProxies = (await db.prepare(`
-      SELECT p.id, p.raw_proxy, p.protocol, p.host, p.port, p.username, p.status, p.latency_ms, p.exit_ip, p.last_checked_at, p.bound_account_id, p.created_at, a.name as bound_account_name
+      SELECT p.id, p.raw_proxy, p.protocol, p.host, p.port, p.username, p.status, p.latency_ms, p.exit_ip, p.last_tested_at, p.bound_account_id, p.created_at, a.name as bound_account_name
       FROM proxies p
       LEFT JOIN accounts a ON a.id = p.bound_account_id
       ORDER BY p.id DESC
@@ -1685,15 +1685,30 @@ async function handleApiRoute(pathname, method, request, env, url) {
 
     const lastSnap = await db.prepare('SELECT * FROM snapshots WHERE target_id = ? ORDER BY observed_at DESC LIMIT 1').bind(target_id).first();
 
-    // Data Quality Gate: Guard against zero metric drop anomalies & corrupted snapshots
-    if (lastSnap && (lastSnap.total_reactions || 0) > 0 && total_reactions === 0 && total_comments === 0) {
-      await db.prepare("UPDATE monitored_targets SET last_checked_at = ?, last_error = 'Sidecar gửi snapshot rỗng (Quality Gate bảo lưu baseline)' WHERE id = ?").bind(now, target_id).run();
-      return jsonResponse({ warning: 'Bảo lưu baseline do snapshot có số liệu rỗng bất thường', target_id });
-    }
+    // Comprehensive Data Quality Gate: Guard against zero metric drops & sharp negative drops across all metrics
+    if (lastSnap) {
+      const lastRx = lastSnap.total_reactions || 0;
+      const lastCmt = lastSnap.total_comments || 0;
+      const lastSh = lastSnap.total_shares || 0;
 
-    if (lastSnap && lastSnap.total_reactions > 20 && total_reactions < lastSnap.total_reactions * 0.4) {
-      await db.prepare("UPDATE monitored_targets SET last_checked_at = ?, last_error = 'Phát hiện số liệu giảm đột ngột bất thường từ Sidecar (bảo lưu snapshot)' WHERE id = ?").bind(now, target_id).run();
-      return jsonResponse({ warning: 'Bảo lưu baseline do số liệu giảm bất thường', target_id });
+      const rxDroppedToZero = lastRx > 5 && total_reactions === 0;
+      const cmtDroppedToZero = lastCmt > 5 && total_comments === 0;
+      const shDroppedToZero = lastSh > 5 && total_shares === 0;
+      const allZeroDrop = (lastRx > 0 || lastCmt > 0 || lastSh > 0) && total_reactions === 0 && total_comments === 0 && total_shares === 0;
+
+      if (rxDroppedToZero || cmtDroppedToZero || shDroppedToZero || allZeroDrop) {
+        await db.prepare("UPDATE monitored_targets SET last_checked_at = ?, last_error = 'Sidecar gửi snapshot sụt giảm về 0 (Quality Gate bảo lưu baseline)' WHERE id = ?").bind(now, target_id).run();
+        return jsonResponse({ warning: 'Bảo lưu baseline do số liệu sụt giảm về 0 bất thường', target_id });
+      }
+
+      const rxSharpDrop = lastRx > 20 && total_reactions < lastRx * 0.4;
+      const cmtSharpDrop = lastCmt > 20 && total_comments < lastCmt * 0.4;
+      const shSharpDrop = lastSh > 20 && total_shares < lastSh * 0.4;
+
+      if (rxSharpDrop || cmtSharpDrop || shSharpDrop) {
+        await db.prepare("UPDATE monitored_targets SET last_checked_at = ?, last_error = 'Phát hiện số liệu giảm đột ngột >60% từ Sidecar (Quality Gate bảo lưu baseline)' WHERE id = ?").bind(now, target_id).run();
+        return jsonResponse({ warning: 'Bảo lưu baseline do số liệu giảm bất thường', target_id });
+      }
     }
 
     const deltaRx = lastSnap ? (total_reactions - lastSnap.total_reactions) : 0;
@@ -1799,6 +1814,13 @@ async function handleApiRoute(pathname, method, request, env, url) {
     const latestSnap = await db.prepare("SELECT observed_at FROM snapshots ORDER BY observed_at DESC LIMIT 1").first();
     const lastSnapshotAgeSec = latestSnap?.observed_at ? Math.floor((Date.now() - new Date(latestSnap.observed_at).getTime()) / 1000) : null;
 
+    // Check for negative delta anomalies in the last 2 hours
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const anomalyCount = (await db.prepare(`
+      SELECT COUNT(*) as count FROM snapshots 
+      WHERE observed_at >= ? AND (delta_reactions < -5 OR delta_comments < -5 OR delta_shares < -5)
+    `).bind(twoHoursAgo).first())?.count || 0;
+
     let overallStatus = 'HEALTHY';
     let message = 'Hệ thống giám sát vận hành bình thường';
 
@@ -1811,6 +1833,9 @@ async function handleApiRoute(pathname, method, request, env, url) {
     } else if (failingTargets > 0 || checkpointAccounts > 0) {
       overallStatus = 'DEGRADED';
       message = `Hệ thống ghi nhận ${failingTargets} bài viết lỗi hoặc ${checkpointAccounts} tài khoản cần xác thực lại.`;
+    } else if (anomalyCount > 0) {
+      overallStatus = 'DEGRADED';
+      message = `Phát hiện ${anomalyCount} snapshot có delta âm trong 2h gần nhất (đang được Quality Gate cách ly).`;
     }
 
     return jsonResponse({
@@ -1822,6 +1847,7 @@ async function handleApiRoute(pathname, method, request, env, url) {
         failingTargets,
         activeAccounts,
         checkpointAccounts,
+        anomalyCount,
         lastSnapshotAt: latestSnap?.observed_at || null,
         lastSnapshotAgeSec
       },
@@ -2150,25 +2176,40 @@ async function syncViaMbasic(target, env, masterKey) {
   // Get previous snapshot
   const lastSnap = await db.prepare('SELECT * FROM snapshots WHERE target_id = ? ORDER BY observed_at DESC LIMIT 1').bind(target.id).first();
 
-  // --- Data Quality Gate: Guard against zero metric drop anomalies & corrupted snapshots ---
-  if (lastSnap && (lastSnap.total_reactions || 0) > 0 && parsed.totalReactions === 0 && parsed.totalComments === 0) {
-    await db.prepare(`
-      UPDATE monitored_targets 
-      SET last_checked_at = ?, 
-          last_error = 'Dữ liệu cào bị rỗng (Quality Gate bảo lưu baseline số liệu)'
-      WHERE id = ?
-    `).bind(now, target.id).run();
-    return;
-  }
+  // --- Comprehensive Multi-Metric Data Quality Gate ---
+  if (lastSnap) {
+    const lastRx = lastSnap.total_reactions || 0;
+    const lastCmt = lastSnap.total_comments || 0;
+    const lastSh = lastSnap.total_shares || 0;
 
-  if (lastSnap && lastSnap.total_reactions > 20 && parsed.totalReactions < lastSnap.total_reactions * 0.4) {
-    await db.prepare(`
-      UPDATE monitored_targets 
-      SET last_checked_at = ?, 
-          last_error = 'Phát hiện số liệu biến động giảm đột ngột bất thường (bảo lưu snapshot)'
-      WHERE id = ?
-    `).bind(now, target.id).run();
-    return;
+    const rxDroppedToZero = lastRx > 5 && parsed.totalReactions === 0;
+    const cmtDroppedToZero = lastCmt > 5 && parsed.totalComments === 0;
+    const shDroppedToZero = lastSh > 5 && parsed.totalShares === 0;
+    const allZeroDrop = (lastRx > 0 || lastCmt > 0 || lastSh > 0) && parsed.totalReactions === 0 && parsed.totalComments === 0 && parsed.totalShares === 0;
+
+    if (rxDroppedToZero || cmtDroppedToZero || shDroppedToZero || allZeroDrop) {
+      await db.prepare(`
+        UPDATE monitored_targets 
+        SET last_checked_at = ?, 
+            last_error = 'Dữ liệu cào bị sụt giảm về 0 bất thường (Quality Gate bảo lưu baseline)'
+        WHERE id = ?
+      `).bind(now, target.id).run();
+      return;
+    }
+
+    const rxSharpDrop = lastRx > 20 && parsed.totalReactions < lastRx * 0.4;
+    const cmtSharpDrop = lastCmt > 20 && parsed.totalComments < lastCmt * 0.4;
+    const shSharpDrop = lastSh > 20 && parsed.totalShares < lastSh * 0.4;
+
+    if (rxSharpDrop || cmtSharpDrop || shSharpDrop) {
+      await db.prepare(`
+        UPDATE monitored_targets 
+        SET last_checked_at = ?, 
+            last_error = 'Phát hiện số liệu biến động giảm đột biến >60% (Quality Gate bảo lưu baseline)'
+        WHERE id = ?
+      `).bind(now, target.id).run();
+      return;
+    }
   }
 
   const deltaRx = lastSnap ? (parsed.totalReactions - lastSnap.total_reactions) : 0;
