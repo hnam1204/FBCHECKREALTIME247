@@ -162,6 +162,7 @@ function switchTab(tabId) {
 // --- WebSocket / Edge Live Stream ---
 let wsRetryCount = 0;
 let pollingInterval = null;
+let wsPingInterval = null;
 
 function startAutoPolling() {
   if (pollingInterval) return;
@@ -169,36 +170,38 @@ function startAutoPolling() {
     if (currentTab === 'overview') fetchOverview();
     if (currentTab === 'targets') fetchTargets();
     if (currentTab === 'alerts') fetchAlerts();
-  }, 20000);
+  }, 5000);
 }
 
 function initWebSocket() {
   const wsDot = document.getElementById('wsDot');
   const wsText = document.getElementById('wsText');
 
-  // If deployed on Serverless Edge, switch immediately to Edge Sync mode
-  const isServerless = window.location.hostname.includes('workers.dev') || window.location.hostname.includes('pages.dev');
-  if (isServerless) {
-    if (wsDot && wsText) {
-      wsDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
-      wsText.textContent = 'Hệ thống 24/7 (Đồng bộ tự động)';
-    }
-    startAutoPolling();
-    return;
-  }
-
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}`;
+  const wsUrl = `${protocol}//${window.location.host}/api/ws`;
 
   try {
+    if (wsPingInterval) clearInterval(wsPingInterval);
     ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
       wsRetryCount = 0;
       if (wsDot && wsText) {
         wsDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
-        wsText.textContent = 'WebSocket Đã kết nối';
+        wsText.textContent = '⚡ Realtime 24/7 (WebSocket Live)';
       }
+      // Send immediate sync request
+      try {
+        ws.send(JSON.stringify({ type: 'GET_METRICS' }));
+      } catch (e) {}
+
+      // Keep connection hot and request live metrics every 4s
+      wsPingInterval = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'PING' }));
+          ws.send(JSON.stringify({ type: 'GET_METRICS' }));
+        }
+      }, 4000);
     };
 
     ws.onmessage = (event) => {
@@ -211,17 +214,14 @@ function initWebSocket() {
     };
 
     ws.onclose = () => {
+      if (wsPingInterval) clearInterval(wsPingInterval);
       wsRetryCount++;
-      if (wsRetryCount > 1) {
-        // Fall back gracefully to Edge Sync without showing red warning
-        if (wsDot && wsText) {
-          wsDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
-          wsText.textContent = 'Hệ thống 24/7 (Đồng bộ tự động)';
-        }
-        startAutoPolling();
-        return;
+      if (wsDot && wsText) {
+        wsDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+        wsText.textContent = '⚡ Realtime 24/7 (Đồng bộ Edge)';
       }
-      setTimeout(initWebSocket, 3000);
+      startAutoPolling();
+      setTimeout(initWebSocket, 4000);
     };
 
     ws.onerror = () => {
@@ -230,7 +230,7 @@ function initWebSocket() {
   } catch (err) {
     if (wsDot && wsText) {
       wsDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
-      wsText.textContent = 'Hệ thống 24/7 (Đồng bộ tự động)';
+      wsText.textContent = '⚡ Realtime 24/7 (Đồng bộ Edge)';
     }
     startAutoPolling();
   }
@@ -240,16 +240,31 @@ function handleLiveEvent(evt) {
   const stream = document.getElementById('activityStream');
   const time = new Date().toLocaleTimeString('vi-VN');
 
-  if (evt.type === 'SNAPSHOT_PROCESSED') {
+  if (evt.type === 'LIVE_METRICS') {
+    if (Array.isArray(evt.targets) && evt.targets.length > 0) {
+      cachedTargets = evt.targets;
+      if (currentTab === 'targets') renderTargetsTable(cachedTargets);
+    }
+    if (evt.totals) {
+      const elRx = document.getElementById('statTotalReactions');
+      const elCm = document.getElementById('statTotalComments');
+      const elSh = document.getElementById('statTotalShares');
+      if (elRx) elRx.textContent = (evt.totals.total_reactions || 0).toLocaleString();
+      if (elCm) elCm.textContent = (evt.totals.total_comments || 0).toLocaleString();
+      if (elSh) elSh.textContent = (evt.totals.total_shares || 0).toLocaleString();
+    }
+  } else if (evt.type === 'SNAPSHOT_PROCESSED') {
     const p = evt.data.processed;
-    const item = document.createElement('div');
-    item.className = 'flex items-center justify-between text-gray-300 py-1 border-b border-gray-800/60';
-    item.innerHTML = `
-      <span>[${time}] Cập nhật target #${p.targetId}: ${p.totalReactions.toLocaleString()} cảm xúc, ${p.totalComments.toLocaleString()} cmt, ${p.totalShares.toLocaleString()} shares</span>
-      <span class="text-emerald-400 font-semibold">+${p.deltas.reactions} rx</span>
-    `;
-    stream.prepend(item);
-    if (stream.children.length > 30) stream.removeChild(stream.lastChild);
+    if (stream) {
+      const item = document.createElement('div');
+      item.className = 'flex items-center justify-between text-txt-body py-1 border-b border-surface-border text-xs';
+      item.innerHTML = `
+        <span>[${time}] Cập nhật target #${p.targetId}: ${p.totalReactions.toLocaleString()} cảm xúc, ${p.totalComments.toLocaleString()} cmt, ${p.totalShares.toLocaleString()} shares</span>
+        <span class="text-emerald-400 font-semibold">+${p.deltas.reactions} rx</span>
+      `;
+      stream.prepend(item);
+      if (stream.children.length > 30) stream.removeChild(stream.lastChild);
+    }
 
     // Refresh active views
     if (currentTab === 'overview') fetchOverview();
@@ -257,13 +272,15 @@ function handleLiveEvent(evt) {
     if (currentDetailTargetId === p.targetId) loadTargetDetail(currentDetailTargetId);
   } else if (evt.type === 'NEW_ALERT') {
     const a = evt.data;
-    const item = document.createElement('div');
-    item.className = 'flex items-center justify-between text-rose-300 py-1 bg-rose-950/20 px-2 rounded border border-rose-900/40';
-    item.innerHTML = `
-      <span>[${time}] 🚨 [${a.alertType}] ${a.message}</span>
-      <span class="text-rose-400 font-bold">${a.severity}</span>
-    `;
-    stream.prepend(item);
+    if (stream) {
+      const item = document.createElement('div');
+      item.className = 'flex items-center justify-between text-rose-300 py-1 bg-rose-950/20 px-2 rounded border border-rose-900/40 text-xs';
+      item.innerHTML = `
+        <span>[${time}] 🚨 [${a.alertType}] ${a.message}</span>
+        <span class="text-rose-400 font-bold">${a.severity}</span>
+      `;
+      stream.prepend(item);
+    }
     fetchOverview();
   }
 }
@@ -363,6 +380,7 @@ function renderOverviewChart(fastestItems) {
 // --- 2. Targets List & Countdown Engine ---
 function initCycleCountdown() {
   if (cycleTimer) clearInterval(cycleTimer);
+  cycleCountdownSeconds = 10;
   cycleTimer = setInterval(() => {
     cycleCountdownSeconds--;
     const globalEl = document.getElementById('globalCountdownText');
@@ -372,8 +390,8 @@ function initCycleCountdown() {
     updateRowCountdowns();
 
     if (cycleCountdownSeconds <= 0) {
-      cycleCountdownSeconds = 20;
-      if (globalEl) globalEl.textContent = '20s';
+      cycleCountdownSeconds = 10;
+      if (globalEl) globalEl.textContent = '10s';
       if (currentTab === 'targets') fetchTargets();
       if (currentTab === 'overview') fetchOverview();
     }

@@ -56,6 +56,55 @@ export default {
       return jsonResponse({ ok: true });
     }
 
+    // 0. Native Edge WebSocket for True Realtime 24/7 Telemetry
+    if (request.headers.get('Upgrade') === 'websocket') {
+      const pair = new WebSocketPair();
+      const [client, server] = Object.values(pair);
+
+      server.accept();
+      server.send(JSON.stringify({
+        type: 'CONNECTED',
+        message: 'Edge WebSocket Realtime 24/7 đã kết nối trực tiếp',
+        timestamp: new Date().toISOString()
+      }));
+
+      server.addEventListener('message', async (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'PING') {
+            server.send(JSON.stringify({ type: 'PONG', timestamp: new Date().toISOString() }));
+          } else if (msg.type === 'GET_METRICS' || msg.type === 'SYNC_REQUEST') {
+            const targets = (await env.DB.prepare(`
+              SELECT id, author_name, normalized_url, target_type, latest_reactions, latest_comments, latest_shares, last_checked_at, status
+              FROM monitored_targets 
+              WHERE status != 'PAUSED'
+              ORDER BY priority DESC, last_checked_at DESC
+            `).all())?.results || [];
+
+            const totals = (await env.DB.prepare(`
+              SELECT 
+                SUM(latest_reactions) as total_reactions,
+                SUM(latest_comments) as total_comments,
+                SUM(latest_shares) as total_shares
+              FROM monitored_targets
+            `).first()) || {};
+
+            server.send(JSON.stringify({
+              type: 'LIVE_METRICS',
+              targets,
+              totals,
+              timestamp: new Date().toISOString()
+            }));
+          }
+        } catch (err) {}
+      });
+
+      return new Response(null, {
+        status: 101,
+        webSocket: client
+      });
+    }
+
     // Only intercept /api/* routes; all other paths served from public/ via env.ASSETS
     if (pathname.startsWith('/api/')) {
       try {

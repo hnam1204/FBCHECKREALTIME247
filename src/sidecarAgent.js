@@ -9,7 +9,7 @@ const { parseMbasicHtml, parseMbasicReactionsBreakdown, parseMbasicReactors } = 
 // Cấu hình Sidecar
 const WORKER_URL = process.env.WORKER_URL || 'https://cookiefb.coongviec.workers.dev';
 const SIDECAR_SECRET = process.env.SIDECAR_SECRET || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
-const INTERVAL_SEC = parseInt(process.env.SIDECAR_INTERVAL_SEC || '30', 10);
+const INTERVAL_SEC = parseInt(process.env.SIDECAR_INTERVAL_SEC || '10', 10);
 
 console.log('===============================================================');
 console.log('[c4] LOCAL RESIDENTIAL SIDECAR AGENT - 24/7 ANTI-CHECKPOINT');
@@ -146,4 +146,11 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
-loop();
+if (require.main === module) {
+  loop();
+}
+
+module.exports = {
+  runSidecarTick,
+  loop
+};
