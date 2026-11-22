@@ -471,6 +471,133 @@ async function handleApiRoute(pathname, method, request, env, url) {
     return jsonResponse({ success: true });
   }
 
+  // GET /api/settings (Tầng 3: Cấu hình Proxy Dân cư & Sidecar)
+  if (pathname === '/api/settings' && method === 'GET') {
+    const rows = (await db.prepare('SELECT key, value FROM system_settings').all())?.results || [];
+    const settings = {};
+    for (const r of rows) settings[r.key] = r.value;
+    return jsonResponse({ settings });
+  }
+
+  // POST /api/settings
+  if (pathname === '/api/settings' && method === 'POST') {
+    const body = await request.json();
+    const now = new Date().toISOString();
+    for (const [key, value] of Object.entries(body)) {
+      await db.prepare(`
+        INSERT INTO system_settings (key, value, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+      `).bind(key, String(value || ''), now).run();
+    }
+    return jsonResponse({ success: true });
+  }
+
+  // GET /api/sidecar/tasks (Local Node.js Sidecar fetch việc cào trên IP máy nhà)
+  if (pathname === '/api/sidecar/tasks' && method === 'GET') {
+    const secret = request.headers.get('X-Sidecar-Secret') || url.searchParams.get('secret');
+    if (!secret || secret !== masterKey) {
+      return jsonResponse({ error: 'Mã bí mật xác thực Sidecar không hợp lệ' }, 401);
+    }
+
+    const targets = (await db.prepare("SELECT * FROM monitored_targets WHERE status != 'PAUSED' ORDER BY priority DESC LIMIT 20").all())?.results || [];
+    const cookieAcc = await db.prepare("SELECT * FROM accounts WHERE account_type = 'cookie' AND status = 'ACTIVE' ORDER BY last_sync_at ASC LIMIT 1").first();
+    const cookie = cookieAcc ? decryptToken(cookieAcc.encrypted_token, masterKey) : null;
+    const proxyRow = await db.prepare("SELECT value FROM system_settings WHERE key = 'residential_proxy_url'").first();
+
+    return jsonResponse({
+      targets,
+      cookie,
+      proxyUrl: proxyRow?.value || null
+    });
+  }
+
+  // POST /api/sidecar/push-snapshot (Nhận snapshot từ Local Sidecar cào qua IP dân cư thật)
+  if (pathname === '/api/sidecar/push-snapshot' && method === 'POST') {
+    const secret = request.headers.get('X-Sidecar-Secret');
+    const body = await request.json();
+    const checkSecret = secret || body.secret;
+    if (!checkSecret || checkSecret !== masterKey) {
+      return jsonResponse({ error: 'Không có quyền truy cập (Invalid Sidecar Secret)' }, 401);
+    }
+
+    const {
+      target_id,
+      total_reactions = 0,
+      reactions = {},
+      total_comments = 0,
+      total_shares = 0,
+      author_name = null,
+      content_snippet = null,
+      interacted_accounts = []
+    } = body;
+
+    const now = new Date().toISOString();
+    const target = await db.prepare('SELECT * FROM monitored_targets WHERE id = ?').bind(target_id).first();
+    if (!target) return jsonResponse({ error: 'Target không tồn tại' }, 404);
+
+    const lastSnap = await db.prepare('SELECT * FROM snapshots WHERE target_id = ? ORDER BY observed_at DESC LIMIT 1').bind(target_id).first();
+    const deltaRx = lastSnap ? (total_reactions - lastSnap.total_reactions) : 0;
+    const deltaCmt = lastSnap ? (total_comments - lastSnap.total_comments) : 0;
+    const deltaSh = lastSnap ? (total_shares - lastSnap.total_shares) : 0;
+
+    const rx = { like: total_reactions, love: 0, care: 0, haha: 0, wow: 0, sad: 0, angry: 0, ...reactions };
+
+    const snapRes = await db.prepare(`
+      INSERT INTO snapshots (
+        target_id, observed_at, source_type,
+        total_reactions, like_count, love_count, care_count, haha_count, wow_count, sad_count, angry_count,
+        total_comments, total_shares, delta_reactions, delta_comments, delta_shares
+      ) VALUES (?, ?, 'LOCAL_SIDECAR', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      target_id, now,
+      total_reactions,
+      rx.like || 0, rx.love || 0, rx.care || 0, rx.haha || 0, rx.wow || 0, rx.sad || 0, rx.angry || 0,
+      total_comments, total_shares,
+      deltaRx, deltaCmt, deltaSh
+    ).run();
+
+    await db.prepare(`
+      UPDATE monitored_targets
+      SET latest_reactions = ?, latest_comments = ?, latest_shares = ?,
+          author_name = COALESCE(?, author_name),
+          content_snippet = COALESCE(?, content_snippet),
+          last_checked_at = ?, last_error = NULL, status = 'ACTIVE'
+      WHERE id = ?
+    `).bind(total_reactions, total_comments, total_shares, author_name, content_snippet, now, target_id).run();
+
+    // Insert interacted accounts
+    if (Array.isArray(interacted_accounts) && interacted_accounts.length > 0) {
+      for (const item of interacted_accounts.slice(0, 30)) {
+        await db.prepare(`
+          INSERT INTO accounts_interacted (
+            target_id, fb_user_id, display_name, profile_url, avatar_url,
+            interaction_type, reaction_type, comment_text, observed_at, data_completeness
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'FULL')
+        `).bind(
+          target_id,
+          item.fb_user_id || item.fbUserId || null,
+          item.display_name || item.displayName || 'Người dùng Facebook',
+          item.profile_url || item.profileUrl || null,
+          item.avatar_url || item.avatarUrl || null,
+          item.interaction_type || item.interactionType || 'COMMENT',
+          item.reaction_type || item.reactionType || null,
+          item.comment_text || item.commentText || null,
+          now
+        ).run();
+      }
+    }
+
+    // Update sidecar heartbeat in system_settings
+    await db.prepare(`
+      INSERT INTO system_settings (key, value, updated_at)
+      VALUES ('sidecar_last_ping', ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `).bind(now, now).run();
+
+    return jsonResponse({ success: true, target_id, snapshot_id: snapRes.meta?.last_row_id });
+  }
+
   // GET /api/health
   if (pathname === '/api/health' && method === 'GET') {
     return jsonResponse({
@@ -516,32 +643,48 @@ async function syncSingleTarget(target, env) {
   const masterKey = env.ENCRYPTION_MASTER_KEY || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
   const graphVersion = env.META_GRAPH_VERSION || 'v21.0';
 
-  // 1. Check if eligible Meta Token exists
+  // 1. TẦNG 3: Ưu tiên tuyệt đối Meta Graph API cho nội dung Fanpage
   let token = null;
+
   if (target.bound_account_id) {
     const acc = await db.prepare('SELECT encrypted_token, status, account_type FROM accounts WHERE id = ?').bind(target.bound_account_id).first();
     if (acc && acc.status === 'ACTIVE' && acc.account_type !== 'cookie') {
       token = decryptToken(acc.encrypted_token, masterKey);
     }
   }
+
+  // Tự động rà soát & bind Page Token nếu bài viết thuộc Fanpage đang kết nối
+  if (!token) {
+    const pages = (await db.prepare("SELECT id, name, fb_account_id, encrypted_token FROM accounts WHERE status = 'ACTIVE' AND account_type = 'page'").all())?.results || [];
+    for (const p of pages) {
+      if (
+        (p.fb_account_id && target.normalized_url.includes(p.fb_account_id)) ||
+        (p.name && target.author_name && target.author_name.toLowerCase().includes(p.name.toLowerCase()))
+      ) {
+        token = decryptToken(p.encrypted_token, masterKey);
+        await db.prepare('UPDATE monitored_targets SET bound_account_id = ? WHERE id = ?').bind(p.id, target.id).run();
+        break;
+      }
+    }
+  }
+
   if (!token) {
     const candidate = await db.prepare("SELECT encrypted_token FROM accounts WHERE status = 'ACTIVE' AND account_type IN ('page', 'user') ORDER BY last_sync_at DESC LIMIT 1").first();
     if (candidate) token = decryptToken(candidate.encrypted_token, masterKey);
   }
 
-  // 2. If token exists and target has content_id with underscore (Page Post), try Graph API
+  // 2. Thử nghiệm Graph API (Không bao giờ bị checkpoint vì dùng OAuth Meta chính thức)
   let graphSuccess = false;
-  if (token && target.content_id && target.content_id.includes('_')) {
+  if (token && target.content_id) {
     try {
       await syncViaGraphApi(target, token, env, graphVersion);
       graphSuccess = true;
     } catch (err) {
-      // If error requires Page Public Content Access or is permission denied, fall through to mbasic
-      console.warn(`Graph API failed for target #${target.id} (${err.message}). Falling back to mbasic...`);
+      console.warn(`Graph API không áp dụng được cho target #${target.id} (${err.message}). Tự động fallback sang mbasic/Sidecar...`);
     }
   }
 
-  // 3. Fallback to mbasic Scraper for 3rd-party public targets
+  // 3. Fallback sang cào mbasic
   if (!graphSuccess) {
     await syncViaMbasic(target, env, masterKey);
   }

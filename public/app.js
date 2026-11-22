@@ -883,9 +883,63 @@ async function submitBatchTargets() {
 function openAccountsModal() {
   document.getElementById('accountsModal').classList.remove('hidden');
   fetchAccountsList();
+  loadSettings();
 }
 function closeAccountsModal() {
   document.getElementById('accountsModal').classList.add('hidden');
+}
+
+async function loadSettings() {
+  try {
+    const res = await fetch('/api/settings');
+    const data = await res.json();
+    const s = data.settings || {};
+    const proxyInput = document.getElementById('residentialProxyInput');
+    if (proxyInput && s.residential_proxy_url) {
+      proxyInput.value = s.residential_proxy_url;
+    }
+    const sidecarBadge = document.getElementById('sidecarStatusBadge');
+    if (sidecarBadge) {
+      if (s.sidecar_last_ping) {
+        const diffSec = Math.floor((Date.now() - new Date(s.sidecar_last_ping).getTime()) / 1000);
+        if (diffSec < 120) {
+          sidecarBadge.className = 'text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-semibold border border-emerald-500/20';
+          sidecarBadge.textContent = `🟢 Hoạt động (${diffSec}s trước)`;
+        } else {
+          sidecarBadge.className = 'text-[10px] px-2 py-0.5 rounded bg-surface-elevated text-txt-sub border border-surface-border';
+          sidecarBadge.textContent = '⚪ Chờ kết nối';
+        }
+      } else {
+        sidecarBadge.className = 'text-[10px] px-2 py-0.5 rounded bg-surface-elevated text-txt-sub border border-surface-border';
+        sidecarBadge.textContent = '⚪ Chưa kích hoạt';
+      }
+    }
+  } catch (err) {
+    console.warn('Lỗi tải settings:', err);
+  }
+}
+
+async function saveResidentialProxy() {
+  const input = document.getElementById('residentialProxyInput');
+  const val = input ? input.value.trim() : '';
+
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ residential_proxy_url: val })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    showNoticeModal({
+      title: 'Cập nhật Proxy Dân Cư',
+      message: val ? 'Đã lưu cấu hình Residential Proxy thành công.' : 'Đã xóa cấu hình Proxy.',
+      type: 'success'
+    });
+  } catch (err) {
+    showNoticeModal({ title: 'Lỗi lưu Proxy', message: err.message, type: 'error' });
+  }
 }
 
 async function autoInspectAndImport() {
