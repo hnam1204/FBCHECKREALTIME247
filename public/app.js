@@ -914,9 +914,9 @@ function renderTargetsTable(targets) {
     } else if (t.status === 'RATE_LIMITED' || t.status === 'DATA_LIMITED') { 
       statusClass = 'status-limited'; 
       statusText = 'Bị giới hạn'; 
-    } else if (t.status === 'PERMISSION_REQUIRED') { 
+    } else if (t.status === 'PERMISSION_REQUIRED' || t.status === 'NEEDS_AUTH') { 
       statusClass = 'status-inaccessible'; 
-      statusText = 'Cần quyền'; 
+      statusText = t.status === 'NEEDS_AUTH' ? 'Cần xác thực' : 'Cần quyền'; 
     } else if (t.status === 'INACCESSIBLE' || t.status === 'ERROR') { 
       statusClass = 'status-inaccessible'; 
       statusText = 'Lỗi truy cập'; 
