@@ -4,7 +4,7 @@
  * Thu thập dữ liệu tương tác Facebook 24/7 và đẩy trực tiếp lên Cloudflare D1.
  */
 
-const { parseMbasicHtml, parseMbasicReactionsBreakdown, parseMbasicReactors } = require('./collector/mbasicCollector');
+const { isCheckpointOrLogin, parseMbasicHtml, parseMbasicReactionsBreakdown, parseMbasicReactors } = require('./collector/mbasicCollector');
 const { testProxyConnectivity } = require('./collector/proxyHelper');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const { SocksProxyAgent } = require('socks-proxy-agent');
@@ -142,6 +142,11 @@ async function runSidecarTick() {
         const res = await fetch(fetchUrl, { agent, headers, redirect: 'follow', timeout: 15000 });
         const html = await res.text();
 
+        if (isCheckpointOrLogin(res.url, html) || html.includes('AccountRequiredProductRule')) {
+          console.warn(`[c4] SIDECAR: Account [${chosenAccount.name}] bị mất phiên / checkpoint hoặc Facebook yêu cầu đăng nhập. Bỏ qua push.`);
+          continue;
+        }
+
         const parsed = parseMbasicHtml(html);
 
         if (
@@ -207,16 +212,17 @@ async function runSidecarTick() {
         const interactedAccounts = [...(parsed.comments || []), ...reactors];
 
         // Client Quality Gate: Không bao giờ đẩy snapshot sụt giảm 0 ghi đè lên bài viết có tương tác baseline
-        const baseRx = target.latest_reactions || 0;
-        const baseCmt = target.latest_comments || 0;
-        const baseSh = target.latest_shares || 0;
+        const baseRx = Math.max(target.latest_reactions || 0, target.last_valid_reactions || 0);
+        const baseCmt = Math.max(target.latest_comments || 0, target.last_valid_comments || 0);
+        const baseSh = Math.max(target.latest_shares || 0, target.last_valid_shares || 0);
         if (
           (baseRx > 5 && parsed.totalReactions === 0) ||
           (baseCmt > 5 && parsed.totalComments === 0) ||
           (baseSh > 5 && parsed.totalShares === 0) ||
-          ((baseRx > 0 || baseCmt > 0) && parsed.totalReactions === 0 && parsed.totalComments === 0)
+          ((baseRx > 0 || baseCmt > 0 || baseSh > 0) && parsed.totalReactions === 0 && parsed.totalComments === 0 && parsed.totalShares === 0) ||
+          (baseRx > 20 && parsed.totalReactions < baseRx * 0.4)
         ) {
-          console.warn(`[c4] SIDECAR: [Quality Gate] Target #${target.id} cào ra 0 tương tác khi baseline đang là (${baseRx} rx, ${baseCmt} cmt). Bỏ qua push để bảo vệ tính toàn vẹn dữ liệu.`);
+          console.warn(`[c4] SIDECAR: [Quality Gate] Target #${target.id} cào ra số liệu bất thường (0 hoặc sụt giảm mạnh) khi baseline đang là (${baseRx} rx, ${baseCmt} cmt). Bỏ qua push để bảo vệ tính toàn vẹn dữ liệu.`);
           continue;
         }
 

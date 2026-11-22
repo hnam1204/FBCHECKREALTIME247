@@ -227,6 +227,42 @@ test('Worker Integrity: Multi-Metric Data Quality Gate accurately rejects anomal
   assert.equal(evaluateQualityGate(baseline, { total_reactions: 98, total_comments: 50, total_shares: 20 }).accepted, true);
 });
 
+test('Worker Integrity: Quality Gate resolves baseline from last_valid_snapshot when immediate previous snapshot is corrupted to 0', () => {
+  // Simulator for resolving baseline
+  function resolveBaseline(target, lastSnap, lastValidSnap) {
+    const baselineRx = Math.max(lastValidSnap?.total_reactions || 0, target.latest_reactions || 0);
+    const baselineCmt = Math.max(lastValidSnap?.total_comments || 0, target.latest_comments || 0);
+    const baselineSh = Math.max(lastValidSnap?.total_shares || 0, target.latest_shares || 0);
+    return { baselineRx, baselineCmt, baselineSh };
+  }
+
+  // Corrupted scenario: target has latest_reactions=0 and lastSnap is 0, but history had 768 reactions
+  const target = { latest_reactions: 0, latest_comments: 0, latest_shares: 0 };
+  const lastCorruptedSnap = { total_reactions: 0, total_comments: 0, total_shares: 0 };
+  const lastValidSnap = { total_reactions: 768, total_comments: 16, total_shares: 23 };
+
+  const baseline = resolveBaseline(target, lastCorruptedSnap, lastValidSnap);
+  assert.equal(baseline.baselineRx, 768, 'Must restore baseline to 768 reactions');
+  assert.equal(baseline.baselineCmt, 16, 'Must restore baseline to 16 comments');
+  assert.equal(baseline.baselineSh, 23, 'Must restore baseline to 23 shares');
+});
+
+test('Worker Integrity: isCheckpointOrLogin detects expired cookie, error titles and Bloks AccountRequiredProductRule', () => {
+  const { isCheckpointOrLogin } = require('../src/collector/mbasicCollector');
+
+  // Case 1: Facebook title "Lỗi" on /me when cookie expired
+  assert.equal(isCheckpointOrLogin('https://mbasic.facebook.com/me', '<html><head><title>Lỗi</title></head><body>...</body></html>'), true);
+
+  // Case 2: Bloks guest upsell AccountRequiredProductRule
+  assert.equal(isCheckpointOrLogin('https://m.facebook.com/posts/123', '<div>..."AccountRequiredProductRule"...</div>'), true);
+
+  // Case 3: Guest mobile prompt "Tận hưởng trải nghiệm trọn vẹn"
+  assert.equal(isCheckpointOrLogin('https://m.facebook.com/posts/123', '<div>Tận hưởng trải nghiệm trọn vẹn, Xem mọi người đang yêu thích...</div>'), true);
+
+  // Case 4: Normal valid post HTML
+  assert.equal(isCheckpointOrLogin('https://mbasic.facebook.com/posts/123', '<html><head><title>Nguyen Hai Nam | Facebook</title></head><body><a href="/ufi/reaction/profile/browser/">100 người khác</a></body></html>'), false);
+});
+
 test('Worker Integrity: Schema column verification - proxies table uses last_tested_at', () => {
   const schemaSql = fs.readFileSync('migrations/0001_initial_schema.sql', 'utf8');
   assert.ok(schemaSql.includes('last_tested_at TEXT'), 'Schema must define last_tested_at in proxies');

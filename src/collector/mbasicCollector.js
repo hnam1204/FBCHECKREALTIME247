@@ -23,15 +23,47 @@ export function extractCUser(cookie) {
 export function isCheckpointOrLogin(currentUrl, html) {
   if (!currentUrl && !html) return false;
   const urlLower = (currentUrl || '').toLowerCase();
-  if (urlLower.includes('/checkpoint/') || urlLower.includes('/login.php') || urlLower.includes('checkpoint')) {
+  if (
+    urlLower.includes('/checkpoint/') ||
+    urlLower.includes('/login.php') ||
+    urlLower.includes('checkpoint') ||
+    urlLower.includes('/login/') ||
+    urlLower.includes('login_attempt')
+  ) {
     return true;
   }
   const htmlLower = (html || '').toLowerCase();
-  if (htmlLower.includes('id="login_form"') || htmlLower.includes('name="login"') || htmlLower.includes('name="email"')) {
-    if (htmlLower.includes('type="password"')) {
+  if (
+    htmlLower.includes('id="login_form"') ||
+    htmlLower.includes('name="login"') ||
+    htmlLower.includes('name="email"') ||
+    htmlLower.includes('action="/login.php"') ||
+    htmlLower.includes('action="/checkpoint/')
+  ) {
+    if (htmlLower.includes('type="password"') || htmlLower.includes('log in') || htmlLower.includes('đăng nhập')) {
       return true;
     }
   }
+
+  // Session expired or Facebook error titles
+  if (
+    htmlLower.includes('<title>lỗi</title>') ||
+    htmlLower.includes('<title>error</title>') ||
+    htmlLower.includes('<title>đăng nhập facebook</title>') ||
+    htmlLower.includes('<title>log in to facebook</title>')
+  ) {
+    return true;
+  }
+
+  // Modern Facebook Bloks & Interstitial guest restrictions
+  if (
+    (html && html.includes('AccountRequiredProductRule')) ||
+    htmlLower.includes('tận hưởng trải nghiệm trọn vẹn') ||
+    htmlLower.includes('xem mọi người đang yêu thích')
+  ) {
+    return true;
+  }
+
   return false;
 }
 

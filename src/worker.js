@@ -1633,7 +1633,21 @@ async function handleApiRoute(pathname, method, request, env, url) {
       return jsonResponse({ error: 'Mã bí mật xác thực Sidecar không hợp lệ (yêu cầu header X-Sidecar-Secret)' }, 401);
     }
 
-    const targets = (await db.prepare("SELECT * FROM monitored_targets WHERE status != 'PAUSED' ORDER BY priority DESC LIMIT 20").all())?.results || [];
+    const rawTargets = (await db.prepare("SELECT * FROM monitored_targets WHERE status != 'PAUSED' ORDER BY priority DESC LIMIT 20").all())?.results || [];
+    const targets = await Promise.all(rawTargets.map(async t => {
+      const lastValid = await db.prepare(`
+        SELECT total_reactions, total_comments, total_shares 
+        FROM snapshots 
+        WHERE target_id = ? AND (total_reactions > 0 OR total_comments > 0 OR total_shares > 0)
+        ORDER BY observed_at DESC LIMIT 1
+      `).bind(t.id).first();
+      return {
+        ...t,
+        last_valid_reactions: Math.max(t.latest_reactions || 0, lastValid?.total_reactions || 0),
+        last_valid_comments: Math.max(t.latest_comments || 0, lastValid?.total_comments || 0),
+        last_valid_shares: Math.max(t.latest_shares || 0, lastValid?.total_shares || 0)
+      };
+    }));
     const allCookieAccounts = (await db.prepare("SELECT id, name, encrypted_token, proxy_url FROM accounts WHERE account_type = 'cookie' AND status = 'ACTIVE' ORDER BY last_sync_at ASC").all())?.results || [];
     const accounts = await Promise.all(allCookieAccounts.map(async a => ({
       id: a.id,
@@ -1684,26 +1698,31 @@ async function handleApiRoute(pathname, method, request, env, url) {
     if (!target) return jsonResponse({ error: 'Target không tồn tại' }, 404);
 
     const lastSnap = await db.prepare('SELECT * FROM snapshots WHERE target_id = ? ORDER BY observed_at DESC LIMIT 1').bind(target_id).first();
+    const lastValidSnap = await db.prepare(`
+      SELECT * FROM snapshots 
+      WHERE target_id = ? AND (total_reactions > 0 OR total_comments > 0 OR total_shares > 0)
+      ORDER BY observed_at DESC LIMIT 1
+    `).bind(target_id).first();
+
+    const baselineRx = Math.max(lastValidSnap?.total_reactions || 0, target.latest_reactions || 0);
+    const baselineCmt = Math.max(lastValidSnap?.total_comments || 0, target.latest_comments || 0);
+    const baselineSh = Math.max(lastValidSnap?.total_shares || 0, target.latest_shares || 0);
 
     // Comprehensive Data Quality Gate: Guard against zero metric drops & sharp negative drops across all metrics
-    if (lastSnap) {
-      const lastRx = lastSnap.total_reactions || 0;
-      const lastCmt = lastSnap.total_comments || 0;
-      const lastSh = lastSnap.total_shares || 0;
-
-      const rxDroppedToZero = lastRx > 5 && total_reactions === 0;
-      const cmtDroppedToZero = lastCmt > 5 && total_comments === 0;
-      const shDroppedToZero = lastSh > 5 && total_shares === 0;
-      const allZeroDrop = (lastRx > 0 || lastCmt > 0 || lastSh > 0) && total_reactions === 0 && total_comments === 0 && total_shares === 0;
+    if (baselineRx > 0 || baselineCmt > 0 || baselineSh > 0) {
+      const rxDroppedToZero = baselineRx > 5 && total_reactions === 0;
+      const cmtDroppedToZero = baselineCmt > 5 && total_comments === 0;
+      const shDroppedToZero = baselineSh > 5 && total_shares === 0;
+      const allZeroDrop = total_reactions === 0 && total_comments === 0 && total_shares === 0;
 
       if (rxDroppedToZero || cmtDroppedToZero || shDroppedToZero || allZeroDrop) {
         await db.prepare("UPDATE monitored_targets SET last_checked_at = ?, last_error = 'Sidecar gửi snapshot sụt giảm về 0 (Quality Gate bảo lưu baseline)' WHERE id = ?").bind(now, target_id).run();
-        return jsonResponse({ warning: 'Bảo lưu baseline do số liệu sụt giảm về 0 bất thường', target_id });
+        return jsonResponse({ warning: 'Bảo lưu baseline do số liệu sụt giảm về 0 bất thường', target_id, baseline: { reactions: baselineRx, comments: baselineCmt, shares: baselineSh } });
       }
 
-      const rxSharpDrop = lastRx > 20 && total_reactions < lastRx * 0.4;
-      const cmtSharpDrop = lastCmt > 20 && total_comments < lastCmt * 0.4;
-      const shSharpDrop = lastSh > 20 && total_shares < lastSh * 0.4;
+      const rxSharpDrop = baselineRx > 20 && total_reactions < baselineRx * 0.4;
+      const cmtSharpDrop = baselineCmt > 20 && total_comments < baselineCmt * 0.4;
+      const shSharpDrop = baselineSh > 20 && total_shares < baselineSh * 0.4;
 
       if (rxSharpDrop || cmtSharpDrop || shSharpDrop) {
         await db.prepare("UPDATE monitored_targets SET last_checked_at = ?, last_error = 'Phát hiện số liệu giảm đột ngột >60% từ Sidecar (Quality Gate bảo lưu baseline)' WHERE id = ?").bind(now, target_id).run();
@@ -1711,9 +1730,10 @@ async function handleApiRoute(pathname, method, request, env, url) {
       }
     }
 
-    const deltaRx = lastSnap ? (total_reactions - lastSnap.total_reactions) : 0;
-    const deltaCmt = lastSnap ? (total_comments - lastSnap.total_comments) : 0;
-    const deltaSh = lastSnap ? (total_shares - lastSnap.total_shares) : 0;
+    const prevSnap = lastValidSnap || lastSnap;
+    const deltaRx = prevSnap ? (total_reactions - prevSnap.total_reactions) : 0;
+    const deltaCmt = prevSnap ? (total_comments - prevSnap.total_comments) : 0;
+    const deltaSh = prevSnap ? (total_shares - prevSnap.total_shares) : 0;
 
     const rx = { like: total_reactions, love: 0, care: 0, haha: 0, wow: 0, sad: 0, angry: 0, ...reactions };
 
@@ -2091,8 +2111,8 @@ async function syncViaMbasic(target, env, masterKey) {
   const html = await response.text();
 
   // Checkpoint or Login Wall Detection
-  if (isCheckpointOrLogin(response.url, html)) {
-    await db.prepare("UPDATE accounts SET status = 'NEEDS_REAUTH', error_log = 'Cookie bị checkpoint hoặc hết hạn đăng nhập' WHERE id = ?").bind(cookieAcc.id).run();
+  if (isCheckpointOrLogin(response.url, html) || html.includes('AccountRequiredProductRule')) {
+    await db.prepare("UPDATE accounts SET status = 'NEEDS_REAUTH', error_log = 'Cookie bị checkpoint hoặc hết hạn phiên (Yêu cầu đăng nhập)' WHERE id = ?").bind(cookieAcc.id).run();
     await recordAlertWithCooldown(db, {
       targetId: target.id,
       alertType: 'AUTH_LOST',
@@ -2105,7 +2125,13 @@ async function syncViaMbasic(target, env, masterKey) {
       message: `Cookie nick phụ (${cookieAcc.name}) bị checkpoint hoặc mất phiên. Cần nạp cookie mới.`,
       now
     }, 30);
-    throw new Error(`Cookie account #${cookieAcc.id} bị checkpoint`);
+    await db.prepare(`
+      UPDATE monitored_targets
+      SET last_checked_at = ?,
+          last_error = 'Cookie nick phụ (${cookieAcc.name}) mất phiên - Cần nạp cookie mới'
+      WHERE id = ?
+    `).bind(now, target.id).run();
+    return;
   }
 
   const parsed = parseMbasicHtml(html);
@@ -2173,33 +2199,38 @@ async function syncViaMbasic(target, env, masterKey) {
     }
   }
 
-  // Get previous snapshot
+  // Get previous snapshot & last valid snapshot
   const lastSnap = await db.prepare('SELECT * FROM snapshots WHERE target_id = ? ORDER BY observed_at DESC LIMIT 1').bind(target.id).first();
+  const lastValidSnap = await db.prepare(`
+    SELECT * FROM snapshots 
+    WHERE target_id = ? AND (total_reactions > 0 OR total_comments > 0 OR total_shares > 0)
+    ORDER BY observed_at DESC LIMIT 1
+  `).bind(target.id).first();
 
-  // --- Comprehensive Multi-Metric Data Quality Gate ---
-  if (lastSnap) {
-    const lastRx = lastSnap.total_reactions || 0;
-    const lastCmt = lastSnap.total_comments || 0;
-    const lastSh = lastSnap.total_shares || 0;
+  const baselineRx = Math.max(lastValidSnap?.total_reactions || 0, target.latest_reactions || 0);
+  const baselineCmt = Math.max(lastValidSnap?.total_comments || 0, target.latest_comments || 0);
+  const baselineSh = Math.max(lastValidSnap?.total_shares || 0, target.latest_shares || 0);
 
-    const rxDroppedToZero = lastRx > 5 && parsed.totalReactions === 0;
-    const cmtDroppedToZero = lastCmt > 5 && parsed.totalComments === 0;
-    const shDroppedToZero = lastSh > 5 && parsed.totalShares === 0;
-    const allZeroDrop = (lastRx > 0 || lastCmt > 0 || lastSh > 0) && parsed.totalReactions === 0 && parsed.totalComments === 0 && parsed.totalShares === 0;
+  // --- Comprehensive Multi-Metric Data Quality Gate against baseline ---
+  if (baselineRx > 0 || baselineCmt > 0 || baselineSh > 0) {
+    const rxDroppedToZero = baselineRx > 5 && parsed.totalReactions === 0;
+    const cmtDroppedToZero = baselineCmt > 5 && parsed.totalComments === 0;
+    const shDroppedToZero = baselineSh > 5 && parsed.totalShares === 0;
+    const allZeroDrop = parsed.totalReactions === 0 && parsed.totalComments === 0 && parsed.totalShares === 0;
 
     if (rxDroppedToZero || cmtDroppedToZero || shDroppedToZero || allZeroDrop) {
       await db.prepare(`
         UPDATE monitored_targets 
         SET last_checked_at = ?, 
-            last_error = 'Dữ liệu cào bị sụt giảm về 0 bất thường (Quality Gate bảo lưu baseline)'
+            last_error = 'Dữ liệu cào bị sụt giảm về 0 bất thường (Quality Gate bảo lưu baseline: ' || ? || ' rx)'
         WHERE id = ?
-      `).bind(now, target.id).run();
+      `).bind(now, baselineRx, target.id).run();
       return;
     }
 
-    const rxSharpDrop = lastRx > 20 && parsed.totalReactions < lastRx * 0.4;
-    const cmtSharpDrop = lastCmt > 20 && parsed.totalComments < lastCmt * 0.4;
-    const shSharpDrop = lastSh > 20 && parsed.totalShares < lastSh * 0.4;
+    const rxSharpDrop = baselineRx > 20 && parsed.totalReactions < baselineRx * 0.4;
+    const cmtSharpDrop = baselineCmt > 20 && parsed.totalComments < baselineCmt * 0.4;
+    const shSharpDrop = baselineSh > 20 && parsed.totalShares < baselineSh * 0.4;
 
     if (rxSharpDrop || cmtSharpDrop || shSharpDrop) {
       await db.prepare(`
@@ -2212,9 +2243,21 @@ async function syncViaMbasic(target, env, masterKey) {
     }
   }
 
-  const deltaRx = lastSnap ? (parsed.totalReactions - lastSnap.total_reactions) : 0;
-  const deltaCmt = lastSnap ? (parsed.totalComments - lastSnap.total_comments) : 0;
-  const deltaSh = lastSnap ? (parsed.totalShares - lastSnap.total_shares) : 0;
+  // If parsed metrics are completely 0 and no baseline was established, reject empty snapshot
+  if (parsed.totalReactions === 0 && parsed.totalComments === 0 && parsed.totalShares === 0) {
+    await db.prepare(`
+      UPDATE monitored_targets 
+      SET last_checked_at = ?, 
+          last_error = 'Facebook không trả phần tử tương tác (Chờ cào qua Sidecar IP dân cư)'
+      WHERE id = ?
+    `).bind(now, target.id).run();
+    return;
+  }
+
+  const prevSnap = lastValidSnap || lastSnap;
+  const deltaRx = prevSnap ? (parsed.totalReactions - prevSnap.total_reactions) : 0;
+  const deltaCmt = prevSnap ? (parsed.totalComments - prevSnap.total_comments) : 0;
+  const deltaSh = prevSnap ? (parsed.totalShares - prevSnap.total_shares) : 0;
 
   // Insert Snapshot
   const snapValues = [
