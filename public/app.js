@@ -928,7 +928,7 @@ function renderTargetsTable(targets) {
     if (t.bound_account_name) {
       accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-brand-blue/20 text-brand-cyan border border-brand-cyan/20 font-medium" title="Phiên tài khoản quản trị"><svg class="w-2.5 h-2.5 text-brand-cyan shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg><span>${t.bound_account_name}</span></span>`;
     } else if (t.latest_source_type === 'LOCAL_SIDECAR') {
-      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium" title="Định tuyến Local Sidecar"><svg class="w-2.5 h-2.5 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg><span>Sidecar (IP Dân cư)</span></span>`;
+      accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium" title="Định tuyến Proxy Dân cư"><svg class="w-2.5 h-2.5 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg><span>Proxy Dân cư</span></span>`;
     } else if (t.latest_source_type === 'MBASIC') {
       accountPill = `<span class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium" title="Phiên mbasic Cookie"><svg class="w-2.5 h-2.5 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg><span>Clone Cookie</span></span>`;
     } else if (t.latest_source_type === 'GRAPH_API') {
@@ -1207,7 +1207,7 @@ async function loadTargetDetail(id, range = currentDetailRange) {
 
     const sourceBadgeEl = document.getElementById('detailSourceTypeBadge');
     if (sourceBadgeEl) {
-      sourceBadgeEl.textContent = t.latest_source_type === 'LOCAL_SIDECAR' ? 'Nguồn: Local Sidecar (IP Dân cư)' : (t.latest_source_type === 'GRAPH_API' ? 'Nguồn: Meta Graph API' : (t.latest_source_type === 'MBASIC' ? 'Nguồn: Clone Cookie mbasic' : 'Nguồn: Hệ thống'));
+      sourceBadgeEl.textContent = t.latest_source_type === 'LOCAL_SIDECAR' ? 'Nguồn: Proxy Dân cư (Residential)' : (t.latest_source_type === 'GRAPH_API' ? 'Nguồn: Meta Graph API' : (t.latest_source_type === 'MBASIC' ? 'Nguồn: Clone Cookie mbasic' : 'Nguồn: Hệ thống'));
     }
 
     // Engagement Totals and Percentages
@@ -1643,22 +1643,6 @@ async function loadSettings() {
     if (proxyInput && s.residential_proxy_url) {
       proxyInput.value = s.residential_proxy_url;
     }
-    const sidecarBadge = document.getElementById('sidecarStatusBadge');
-    if (sidecarBadge) {
-      if (s.sidecar_last_ping) {
-        const diffSec = Math.floor((Date.now() - new Date(s.sidecar_last_ping).getTime()) / 1000);
-        if (diffSec < 120) {
-          sidecarBadge.className = 'text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-semibold border border-emerald-500/20 inline-flex items-center gap-1.5';
-          sidecarBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span><span>Hoạt động (${diffSec}s trước)</span>`;
-        } else {
-          sidecarBadge.className = 'text-[10px] px-2 py-0.5 rounded bg-surface-elevated text-txt-sub border border-surface-border inline-flex items-center gap-1.5';
-          sidecarBadge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span><span>Chờ kết nối</span>';
-        }
-      } else {
-        sidecarBadge.className = 'text-[10px] px-2 py-0.5 rounded bg-surface-elevated text-txt-sub border border-surface-border inline-flex items-center gap-1.5';
-        sidecarBadge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span><span>Chưa kích hoạt</span>';
-      }
-    }
   } catch (err) {
     console.warn('Lỗi tải settings:', err);
   }
@@ -1780,7 +1764,7 @@ async function submitBatchProxies() {
 
     showNoticeModal({
       title: 'Nạp Proxy thành công',
-      message: `Đã nạp thành công ${data.imported} proxy mới vào hệ thống. Node.js Sidecar đang tự động ping kiểm tra kết nối...`,
+      message: `Đã nạp thành công ${data.imported} proxy mới vào hệ thống. Hệ thống đang tự động ping kiểm tra kết nối...`,
       type: 'success'
     });
   } catch (err) {
@@ -1801,7 +1785,7 @@ async function testAllProxies() {
     fetchProxiesList();
     showNoticeModal({
       title: 'Đang kiểm tra kết nối Proxy',
-      message: 'Đã gửi lệnh kiểm tra tới Local Sidecar. Toàn bộ proxy trong pool đang được test kết nối và đo ping...',
+      message: 'Đã gửi lệnh kiểm tra kết nối. Toàn bộ proxy trong pool đang được test kết nối và đo ping...',
       type: 'info'
     });
   } catch (err) {

@@ -606,7 +606,7 @@
           <select id="targetSourceFilter" onchange="fetchTargets()" class="rounded-xl px-3 py-2 text-xs bg-surface-elevated border border-surface-border text-txt-body">
             <option value="">Tất cả nguồn dữ liệu</option>
             <option value="GRAPH_API">Meta Graph API</option>
-            <option value="LOCAL_SIDECAR">Local Sidecar (IP Dân cư)</option>
+            <option value="LOCAL_SIDECAR">Proxy Dân cư (Residential)</option>
             <option value="MBASIC">mbasic Cookie Clone</option>
           </select>
           <select id="targetSortFilter" onchange="fetchTargets()" class="rounded-xl px-3 py-2 text-xs bg-surface-elevated border border-surface-border text-txt-body">
@@ -1543,9 +1543,9 @@
   </div>
 
   <!-- ================= MODAL: ACCOUNTS & META OAUTH ================= -->
-  <div id="accountsModal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="surface-card border border-surface-border rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl">
-      <div class="flex items-center justify-between border-b border-surface-border pb-3">
+  <div id="accountsModal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+    <div class="surface-card border border-surface-border rounded-2xl max-w-2xl w-full p-4 sm:p-6 shadow-2xl max-h-[90vh] my-auto flex flex-col">
+      <div class="flex items-center justify-between border-b border-surface-border pb-3 shrink-0">
         <div>
           <h3 class="text-sm font-bold text-txt-title">Quản lý kết nối tài khoản & Fanpage Meta</h3>
           <p class="text-xs text-txt-sub">Mã hóa AES-256-GCM bảo mật cao, không lưu văn bản thuần</p>
@@ -1555,123 +1555,126 @@
         </button>
       </div>
 
-      <!-- Auto Inspect & Import Box -->
-      <div class="bg-surface rounded-xl p-4 space-y-2 border border-brand-cyan/30">
-        <div class="flex items-center justify-between">
-          <h4 class="text-xs font-bold text-brand-cyan flex items-center gap-2">
-            <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-            <span>Tự động trích xuất từ 1 User Token:</span>
-          </h4>
-          <span class="text-xs text-txt-sub">Tự động bóc Scopes & nạp toàn bộ Pages</span>
-        </div>
-        <div class="flex gap-2">
-          <input type="password" id="autoTokenInput" placeholder="Dán Meta User Access Token vào đây..." class="flex-1 rounded px-3 py-1.5 text-xs font-mono">
-          <button type="button" onclick="autoInspectAndImport()" class="px-4 py-1.5 bg-brand-blue hover:bg-brand-ocean text-white text-xs font-semibold rounded whitespace-nowrap border border-brand-cyan/30">
-            Nạp tự động
-          </button>
-        </div>
-      </div>
-
-      <!-- Add Cookie Account Box (mbasic for 3rd-party public links) -->
-      <div class="bg-surface rounded-xl p-4 space-y-2 border border-brand-cyan/30">
-        <div class="flex items-center justify-between">
-          <h4 class="text-xs font-bold text-brand-cyan flex items-center gap-2">
-            <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
-            <span>Nạp Cookie Nick Phụ (mbasic - Giám sát link bên thứ ba):</span>
-          </h4>
-          <span class="text-xs text-txt-sub">Mã hóa AES-256-GCM, tự động cào 24/7</span>
-        </div>
-        <div class="grid grid-cols-3 gap-2">
-          <input type="text" id="cookieAccName" placeholder="Tên gợi nhớ (VD: Clone 1)" class="rounded px-3 py-1.5 text-xs">
-          <input type="password" id="cookieInput" placeholder="Dán chuỗi Cookie (c_user=...; xs=...;)" class="col-span-2 rounded px-3 py-1.5 text-xs font-mono">
-        </div>
-        <div class="flex justify-end mt-1">
-          <button type="button" onclick="submitAddCookieAccount()" class="px-4 py-1.5 bg-brand-blue hover:bg-brand-ocean text-white text-xs font-semibold rounded whitespace-nowrap border border-brand-cyan/30">
-            Lưu Cookie mbasic
-          </button>
-        </div>
-      </div>
-
-      <!-- Residential Proxy & Multi-Account Isolation Pool -->
-      <div class="bg-surface rounded-xl p-4 space-y-3 border border-emerald-500/30">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-surface-border/60 pb-2.5">
-          <div>
-            <h4 class="text-xs font-bold text-txt-title flex items-center gap-2">
-              <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-              <span>Proxy Dân cư Việt Nam (Residential Proxy SOCKS5/HTTP):</span>
+      <!-- Scrollable Inner Body -->
+      <div class="overflow-y-auto space-y-4 pr-1 -mr-1 flex-1 py-1 modal-body-scroll">
+        <!-- Auto Inspect & Import Box -->
+        <div class="bg-surface rounded-xl p-4 space-y-2 border border-brand-cyan/30">
+          <div class="flex items-center justify-between">
+            <h4 class="text-xs font-bold text-brand-cyan flex items-center gap-2">
+              <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+              <span>Tự động trích xuất từ 1 User Token:</span>
             </h4>
-            <p class="text-[11px] text-txt-sub mt-0.5">Cấu hình 1 proxy duy nhất hoặc nạp hàng loạt vào pool, giữ phiên độc lập</p>
+            <span class="text-xs text-txt-sub">Tự động bóc Scopes & nạp toàn bộ Pages</span>
           </div>
-          <div class="flex items-center gap-2">
-            <span class="text-[11px] text-emerald-400 font-semibold flex items-center gap-1.5 shrink-0">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              Chống khóa nick 100%
-            </span>
-          </div>
-        </div>
-
-        <!-- Quick Single Residential Proxy Input (Matches user setup) -->
-        <div class="flex flex-col sm:flex-row gap-2">
-          <input type="text" id="residentialProxyInput" placeholder="http://user:pass@ip:port hoặc socks5://ip:port hoặc ip:port:user:pass..." class="flex-1 rounded-xl px-3 py-2 text-xs font-mono">
-          <button type="button" onclick="saveResidentialProxy()" class="px-5 py-2 bg-brand-blue hover:bg-brand-ocean text-white text-xs font-semibold rounded-xl whitespace-nowrap border border-brand-cyan/30 flex items-center justify-center gap-1.5 transition active:scale-95 shadow-sm">
-            <span>Lưu Proxy</span>
-          </button>
-        </div>
-
-        <!-- Action Bar for Multi-Proxy Batch Pool -->
-        <div class="flex items-center justify-between pt-1">
-          <span class="text-[11px] text-txt-sub font-medium">Hoặc quản lý Pool đa tài khoản:</span>
-          <div class="flex items-center gap-1.5 flex-wrap">
-            <button type="button" onclick="toggleBatchProxyInput()" class="px-2.5 py-1 bg-brand-cyan/10 hover:bg-brand-cyan/20 text-brand-cyan border border-brand-cyan/30 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
-              <span>Nhập hàng loạt</span>
-            </button>
-            <button type="button" onclick="testAllProxies()" id="btnTestAllProxies" class="px-2.5 py-1 bg-surface-elevated hover:bg-surface text-txt-body border border-surface-border text-xs font-semibold rounded-lg flex items-center gap-1.5 transition">
-              <svg class="w-3.5 h-3.5 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-              <span>Test toàn bộ</span>
-            </button>
-            <button type="button" onclick="autoAssignProxies()" id="btnAutoAssignProxies" class="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition">
-              <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg>
-              <span>Gán 1:1 độc lập</span>
+          <div class="flex gap-2">
+            <input type="password" id="autoTokenInput" placeholder="Dán Meta User Access Token vào đây..." class="flex-1 rounded px-3 py-1.5 text-xs font-mono">
+            <button type="button" onclick="autoInspectAndImport()" class="px-4 py-1.5 bg-brand-blue hover:bg-brand-ocean text-white text-xs font-semibold rounded whitespace-nowrap border border-brand-cyan/30">
+              Nạp tự động
             </button>
           </div>
         </div>
 
-        <!-- Collapsible Batch Proxy Input Box (Default hidden) -->
-        <div id="batchProxyBox" class="hidden space-y-2 bg-surface-elevated p-3 rounded-lg border border-surface-border">
-          <label class="block text-[11px] text-txt-sub font-medium">Dán danh sách Proxy (Hỗ trợ <code>ip:port:user:pass</code>, <code>http://...</code>, <code>socks5://...</code>, mỗi proxy 1 dòng):</label>
-          <textarea id="batchProxyInput" rows="3" placeholder="103.153.22.10:8080:username:password&#10;http://user:pass@14.225.205.100:9999&#10;socks5://user:pass@103.56.12.34:1080" class="w-full rounded px-3 py-1.5 text-xs font-mono"></textarea>
-          <div class="flex justify-between items-center">
-            <span class="text-[10px] text-txt-muted">Hệ thống sẽ tự động bóc tách và test ping sau khi nạp.</span>
-            <button type="button" onclick="submitBatchProxies()" class="px-4 py-1.5 bg-brand-blue hover:bg-brand-ocean text-white text-xs font-semibold rounded border border-brand-cyan/30 flex items-center gap-1.5 transition">
-              <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-              <span>Nạp & Test Tự Động</span>
+        <!-- Add Cookie Account Box (mbasic for 3rd-party public links) -->
+        <div class="bg-surface rounded-xl p-4 space-y-2 border border-brand-cyan/30">
+          <div class="flex items-center justify-between">
+            <h4 class="text-xs font-bold text-brand-cyan flex items-center gap-2">
+              <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+              <span>Nạp Cookie Nick Phụ (mbasic - Giám sát link bên thứ ba):</span>
+            </h4>
+            <span class="text-xs text-txt-sub">Mã hóa AES-256-GCM, tự động cào 24/7</span>
+          </div>
+          <div class="grid grid-cols-3 gap-2">
+            <input type="text" id="cookieAccName" placeholder="Tên gợi nhớ (VD: Clone 1)" class="rounded px-3 py-1.5 text-xs">
+            <input type="password" id="cookieInput" placeholder="Dán chuỗi Cookie (c_user=...; xs=...;)" class="col-span-2 rounded px-3 py-1.5 text-xs font-mono">
+          </div>
+          <div class="flex justify-end mt-1">
+            <button type="button" onclick="submitAddCookieAccount()" class="px-4 py-1.5 bg-brand-blue hover:bg-brand-ocean text-white text-xs font-semibold rounded whitespace-nowrap border border-brand-cyan/30">
+              Lưu Cookie mbasic
             </button>
           </div>
         </div>
 
-        <!-- Live Proxy Pool Table -->
-        <div class="space-y-1.5">
-          <div class="flex items-center justify-between text-[11px] text-txt-sub px-1">
-            <span id="proxyPoolStats">Danh sách Proxy (0 LIVE / 0 DIE):</span>
-            <span class="text-[10px] text-txt-muted">Tự động định tuyến qua Node.js Sidecar</span>
+        <!-- Residential Proxy & Multi-Account Isolation Pool -->
+        <div class="bg-surface rounded-xl p-4 space-y-3 border border-emerald-500/30">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-surface-border/60 pb-2.5">
+            <div>
+              <h4 class="text-xs font-bold text-txt-title flex items-center gap-2">
+                <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span>Proxy Dân cư Việt Nam (Residential Proxy SOCKS5/HTTP):</span>
+              </h4>
+              <p class="text-[11px] text-txt-sub mt-0.5">Cấu hình 1 proxy duy nhất hoặc nạp hàng loạt vào pool, giữ phiên độc lập</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-[11px] text-emerald-400 font-semibold flex items-center gap-1.5 shrink-0">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                Chống khóa nick 100%
+              </span>
+            </div>
           </div>
-          <div id="proxyPoolList" class="divide-y border border-surface-border rounded-lg max-h-40 overflow-y-auto bg-surface-elevated/40 text-xs font-mono">
+
+          <!-- Quick Single Residential Proxy Input (Matches user setup) -->
+          <div class="flex flex-col sm:flex-row gap-2">
+            <input type="text" id="residentialProxyInput" placeholder="http://user:pass@ip:port hoặc socks5://ip:port hoặc ip:port:user:pass..." class="flex-1 rounded-xl px-3 py-2 text-xs font-mono">
+            <button type="button" onclick="saveResidentialProxy()" class="px-5 py-2 bg-brand-blue hover:bg-brand-ocean text-white text-xs font-semibold rounded-xl whitespace-nowrap border border-brand-cyan/30 flex items-center justify-center gap-1.5 transition active:scale-95 shadow-sm">
+              <span>Lưu Proxy</span>
+            </button>
+          </div>
+
+          <!-- Action Bar for Multi-Proxy Batch Pool -->
+          <div class="flex items-center justify-between pt-1">
+            <span class="text-[11px] text-txt-sub font-medium">Hoặc quản lý Pool đa tài khoản:</span>
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <button type="button" onclick="toggleBatchProxyInput()" class="px-2.5 py-1 bg-brand-cyan/10 hover:bg-brand-cyan/20 text-brand-cyan border border-brand-cyan/30 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                <span>Nhập hàng loạt</span>
+              </button>
+              <button type="button" onclick="testAllProxies()" id="btnTestAllProxies" class="px-2.5 py-1 bg-surface-elevated hover:bg-surface text-txt-body border border-surface-border text-xs font-semibold rounded-lg flex items-center gap-1.5 transition">
+                <svg class="w-3.5 h-3.5 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                <span>Test toàn bộ</span>
+              </button>
+              <button type="button" onclick="autoAssignProxies()" id="btnAutoAssignProxies" class="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition">
+                <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg>
+                <span>Gán 1:1 độc lập</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Collapsible Batch Proxy Input Box (Default hidden) -->
+          <div id="batchProxyBox" class="hidden space-y-2 bg-surface-elevated p-3 rounded-lg border border-surface-border">
+            <label class="block text-[11px] text-txt-sub font-medium">Dán danh sách Proxy (Hỗ trợ <code>ip:port:user:pass</code>, <code>http://...</code>, <code>socks5://...</code>, mỗi proxy 1 dòng):</label>
+            <textarea id="batchProxyInput" rows="3" placeholder="103.153.22.10:8080:username:password&#10;http://user:pass@14.225.205.100:9999&#10;socks5://user:pass@103.56.12.34:1080" class="w-full rounded px-3 py-1.5 text-xs font-mono"></textarea>
+            <div class="flex justify-between items-center">
+              <span class="text-[10px] text-txt-muted">Hệ thống sẽ tự động bóc tách và test ping sau khi nạp.</span>
+              <button type="button" onclick="submitBatchProxies()" class="px-4 py-1.5 bg-brand-blue hover:bg-brand-ocean text-white text-xs font-semibold rounded border border-brand-cyan/30 flex items-center gap-1.5 transition">
+                <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                <span>Nạp & Test Tự Động</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Live Proxy Pool Table -->
+          <div class="space-y-1.5">
+            <div class="flex items-center justify-between text-[11px] text-txt-sub px-1">
+              <span id="proxyPoolStats">Danh sách Proxy (0 LIVE / 0 DIE):</span>
+              <span class="text-[10px] text-txt-muted">Tự động định tuyến xoay tua</span>
+            </div>
+            <div id="proxyPoolList" class="divide-y border border-surface-border rounded-lg max-h-40 overflow-y-auto bg-surface-elevated/40 text-xs font-mono">
+              <!-- Populated dynamically -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Connected Accounts List -->
+        <div class="space-y-2">
+          <h4 class="text-xs font-semibold text-txt-body">Tài khoản đang liên kết:</h4>
+          <div id="accountsListContainer" class="divide-y border border-surface-border rounded-xl overflow-hidden max-h-48 overflow-y-auto">
             <!-- Populated dynamically -->
           </div>
         </div>
       </div>
 
-      <!-- Connected Accounts List -->
-      <div class="space-y-2">
-        <h4 class="text-xs font-semibold text-txt-body">Tài khoản đang liên kết:</h4>
-        <div id="accountsListContainer" class="divide-y border border-surface-border rounded-xl overflow-hidden max-h-48 overflow-y-auto">
-          <!-- Populated dynamically -->
-        </div>
-      </div>
-
-      <!-- Modal Footer with Close Button -->
-      <div class="pt-3 border-t border-surface-border flex justify-end">
+      <!-- Modal Footer with Close Button (Sticky) -->
+      <div class="pt-3 border-t border-surface-border flex justify-end shrink-0">
         <button type="button" onclick="closeAccountsModal()" class="px-5 py-2 bg-surface-elevated hover:bg-surface text-txt-body rounded-xl font-semibold border border-surface-border transition cursor-pointer text-xs flex items-center gap-1.5 active:scale-95 shadow-sm">
           <svg class="w-4 h-4 text-txt-sub" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
           <span>Đóng</span>
